@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IQVO — Can AI agents do real Domain-Driven Design?</title>
-<meta name="description" content="IQVO is a Domain-Driven Design study and an open experiment in AI agents, durable memory and harness engineering across different LLMs: {{contexts}} bounded contexts in one warehouse, retail-network and storefront ecosystem.">
+<meta name="description" content="A study project, not a product and not production. IQVO is a Domain-Driven Design study and an open experiment in AI agents, durable memory and harness engineering across different LLMs: {{contexts}} bounded contexts in one warehouse, retail-network and storefront ecosystem.">
 <meta name="theme-color" content="#0B1D2D">
 <meta name="color-scheme" content="light">
 {{#siteUrl}}<link rel="canonical" href="{{siteUrl}}/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="IQVO">
 <meta property="og:title" content="IQVO — Can AI agents do real Domain-Driven Design?">
-<meta property="og:description" content="{{contexts}} bounded contexts, AI agents, durable memory and a harness that says no. A Domain-Driven Design study and an open experiment across different LLMs.">
+<meta property="og:description" content="A study project, not a product. {{contexts}} bounded contexts, AI agents, durable memory and a harness that says no. A Domain-Driven Design study and an open experiment across different LLMs.">
 <meta property="og:url" content="{{siteUrl}}/">
 <meta property="og:image" content="{{siteUrl}}/og-image.jpg">
 <meta property="og:image:width" content="1200">
@@ -29,6 +29,11 @@
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
+<div class="sticky">
+<p class="banner" role="note">
+  <strong>A study project.</strong>
+  <span>Not a product, not production, not affiliated with any company.</span>
+</p>
 <header class="nav" id="top">
   <div class="wrap nav__in">
     <a class="brand" href="#top" aria-label="IQVO Warehouse Systems, back to top">
@@ -53,6 +58,7 @@
     </nav>
   </div>
 </header>
+</div>
 
 <main id="main">
 
@@ -75,7 +81,7 @@
       </div>
       <p class="honesty">
         <span class="pip" aria-hidden="true"></span>
-        A study project. Not a product, not production, not affiliated with any company.
+        <span><strong>A study project.</strong> Not a product, not production, not affiliated with any company.</span>
       </p>
     </div>
 
@@ -109,6 +115,22 @@
       <div><dt>days since first commit</dt><dd>{{days}}</dd></div>
     </dl>
     <p class="telemetry__src mono">Counted from the repositories by <code>scripts/collect-facts.mjs</code> on {{updated}}. First commit {{first}}.</p>
+  </div>
+</section>
+
+<!-- ============================ READ THIS FIRST ============================ -->
+<section class="notice" id="not" aria-labelledby="not-title">
+  <div class="wrap notice__in">
+    <div class="notice__head">
+      <p class="kicker">Read this first</p>
+      <h2 id="not-title">What IQVO <em>is not.</em></h2>
+    </div>
+    <ul class="notice__list">
+      <li><b>A study project.</b><span>A Domain-Driven Design exercise and an experiment with AI agents. Nobody should build on it as if it were finished software.</span></li>
+      <li><b>Not a product.</b><span>Nothing here is for sale, supported or on a roadmap. There are no customers, and no service levels.</span></li>
+      <li><b>Not production.</b><span>It runs on a single-node local cluster with one Kafka broker. REST and MCP are deliberately unauthenticated, so do not expose it to a network you do not control.</span></li>
+      <li><b>Not affiliated with any company.</b><span>It is not endorsed by anyone and uses no company&rsquo;s code, data, logos or trademarks. Names, figures and examples are illustrative or synthetic.</span></li>
+    </ul>
   </div>
 </section>
 

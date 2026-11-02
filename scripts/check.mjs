@@ -64,6 +64,14 @@ for (const page of ['index.html', '404.html']) {
     for (const m of html.matchAll(/data-tab="([^"]+)"/g)) if (!html.includes(`data-panel="${m[1]}"`)) fail(`tab "${m[1]}" has no panel`);
     for (const m of html.matchAll(/aria-(?:controls|labelledby)="([^"]+)"/g)) for (const id of m[1].split(/\s+/)) if (!ids.has(id)) fail(`aria reference to missing id "${id}"`);
 
+    // ---- the study-project disclaimer must stay loud and verbatim ----
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/&rsquo;/g, "'").replace(/\s+/g, ' ');
+    const DISC = "This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.";
+    if (!text.includes(DISC)) fail('fleet disclaimer missing or reworded in the footer');
+    if (!/<p class="banner"/.test(html)) fail('study-project banner missing');
+    if (!text.includes('Not a product, not production, not affiliated with any company.')) fail('banner sentence missing');
+    if (!html.includes('id="not"')) fail('"What IQVO is not" band missing');
+
     // ---- facts must be consistent with what the page says ----
     const c = facts.counts;
     const sum = Object.values(c.byDomain).reduce((a, b) => a + b, 0);
