@@ -15,6 +15,11 @@
   const NS = 'http://www.w3.org/2000/svg';
   const W = 1000, H = 740;
 
+  // Only plain https/http links may reach an href; anything else (javascript:, data:, ...) becomes '#'.
+  const safeUrl = (u) => {
+    try { const x = new URL(u, location.href); return x.protocol === 'https:' || x.protocol === 'http:' ? x.href : '#'; } catch { return '#'; }
+  };
+
   const el = (name, attrs = {}, parent) => {
     const e = document.createElementNS(NS, name);
     for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -136,8 +141,8 @@
     info.appendChild(mk('p', 'hud__purpose', n.p));
     const tags = mk('p', 'mono hud__tags');
     [n.m ? 'MCP' : null, n.a ? 'A2A' : null, n.r ? `${n.r} ADRs` : null, `${n.o} out`, `${n.i} in`].filter(Boolean).forEach((t) => tags.appendChild(mk('span', '', t)));
-    const doc = mk('a', '', 'docs ↗'); doc.href = DOMAINS[n.d].docs(n.id); doc.rel = 'noopener';
-    const repo = mk('a', '', 'repo ↗'); repo.href = `${data.github}/${n.id}`; repo.rel = 'noopener';
+    const doc = mk('a', '', 'docs ↗'); doc.href = safeUrl(DOMAINS[n.d].docs(n.id)); doc.rel = 'noopener';
+    const repo = mk('a', '', 'repo ↗'); repo.href = safeUrl(`${data.github}/${encodeURIComponent(n.id)}`); repo.rel = 'noopener';
     tags.append(doc, repo);
     info.appendChild(tags);
   }

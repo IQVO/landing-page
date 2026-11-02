@@ -89,9 +89,13 @@ for (const page of ['index.html', '404.html']) {
   }
 
   if (online && page === 'index.html') {
+    const allowedHosts = new Set([docsHost, ghHost]);
     for (const u of externals) {
+      // Only ever probe https URLs on the two hosts this page is allowed to link to.
+      const target = new URL(u);
+      if (target.protocol !== 'https:' || !allowedHosts.has(target.host)) { fail(`online: refusing to probe ${target.host}`); continue; }
       try {
-        const r = await fetch(u, { method: 'HEAD', redirect: 'follow' });
+        const r = await fetch(`${target.origin}${target.pathname}${target.search}`, { method: 'HEAD', redirect: 'follow' });
         if (!r.ok) fail(`online: ${u} -> ${r.status}`);
       } catch (e) { fail(`online: ${u} -> ${e.message}`); }
     }
