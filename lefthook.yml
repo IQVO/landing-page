@@ -1,0 +1,18 @@
+# Fleet standard: fast checks on commit, the full gate on push. Install once: `lefthook install`.
+pre-commit:
+  parallel: true
+  commands:
+    js-syntax:
+      glob: "*.{js,mjs}"
+      run: node --check {staged_files}
+    dockerfile:
+      glob: "Dockerfile"
+      run: hadolint Dockerfile
+    workflows:
+      glob: ".github/workflows/*.yml"
+      run: actionlint {staged_files}
+
+pre-push:
+  commands:
+    check:
+      run: make check

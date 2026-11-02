@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>og-image source</title>
+<!-- Source of src/og-image.jpg (1200x630). Render: serve the repo root, open this file at 1200x630, screenshot. -->
+<style>
+@font-face{font-family:"Bricolage";src:url("../src/assets/fonts/bricolage-grotesque.woff2") format("woff2");font-weight:200 800}
+@font-face{font-family:"Instrument Serif";src:url("../src/assets/fonts/instrument-serif-italic.woff2") format("woff2");font-style:italic}
+@font-face{font-family:"JetBrains Mono";src:url("../src/assets/fonts/jetbrains-mono.woff2") format("woff2");font-weight:100 800}
+*{box-sizing:border-box;margin:0}
+html,body{width:1200px;height:630px;overflow:hidden;background:#0b1d2d}
+body{position:relative;font-family:Bricolage,sans-serif;color:#fff;background:radial-gradient(70% 90% at 78% 50%,#163650,#0b1d2d 70%)}
+svg{position:absolute;right:16px;top:0;width:680px;height:630px}
+.logo{position:absolute;left:64px;top:56px;background:#f3f7f8;border-radius:12px;padding:12px 20px}
+.logo img{height:54px;display:block}
+h1{position:absolute;left:64px;top:190px;width:640px;font-size:84px;line-height:.98;font-weight:780;letter-spacing:-.038em}
+h1 em{font-family:"Instrument Serif",serif;font-weight:400;color:#44ccac;font-size:1.12em;letter-spacing:-.02em}
+.sub{position:absolute;left:64px;bottom:56px;font:500 22px "JetBrains Mono",monospace;color:#a3b8c7;letter-spacing:.02em}
+.sub b{color:#44ccac;font-weight:600}
+</style></head><body>
+<svg id="m" viewBox="0 0 1000 740"></svg>
+<div class="logo"><img src="../src/assets/img/iqvo-logo.png" alt=""></div>
+<h1>Can AI agents do <em>real</em> Domain&#8209;Driven Design?</h1>
+<div class="sub"><b>35</b> bounded contexts · agents · memory · a harness that says no</div>
+<script>
+(async()=>{
+ const f=await (await fetch('../data/facts.json')).json(); const C={wms:'#4a9bd8',wes:'#44ccac','retail-network':'#a8ddf0',storefront:'#f2b84b'};
+ const N=f.contexts, xs=N.map(n=>n.x), ys=N.map(n=>n.y); const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+ const k=Math.min(860/(x1-x0),640/(y1-y0)), ox=70+(860-(x1-x0)*k)/2, oy=50+(640-(y1-y0)*k)/2;
+ const P=N.map(n=>[ox+(n.x-x0)*k, oy+(n.y-y0)*k]); const idx=Object.fromEntries(N.map((n,i)=>[n.id,i]));
+ const s=document.getElementById('m'); let h='';
+ f.edges.forEach(e=>{const a=P[idx[e.from]],b=P[idx[e.to]];h+=`<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="rgba(160,205,235,.2)" stroke-width="1.4"/>`});
+ N.forEach((n,i)=>{const r=n.classification==='Core'?17:n.classification.startsWith('Generic')?10:13;h+=`<circle cx="${P[i][0]}" cy="${P[i][1]}" r="${r+7}" fill="none" stroke="${C[n.domain]}" stroke-opacity=".4" stroke-width="2"/><circle cx="${P[i][0]}" cy="${P[i][1]}" r="${r}" fill="${C[n.domain]}"/>`});
+ s.innerHTML=h; document.body.dataset.ready='1';
+})();
+</script></body></html>
