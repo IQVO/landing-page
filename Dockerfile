@@ -21,11 +21,22 @@ RUN node scripts/build.mjs && node scripts/check.mjs
 
 # --- runtime stage ---
 FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:378d0c32f6562f7fd9629170797f57d2b953aa09be983b3daaf4809bb039ca00
-USER root
+# Override the base image's inherited created/revision labels with this build's own.
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.title="IQVO landing page" \
+      org.opencontainers.image.description="Static IQVO landing page served by nginx. A domain-driven design study, not a product." \
+      org.opencontainers.image.source="https://github.com/IQVO/landing-page" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="IQVO"
+USER 0
 RUN apk upgrade --no-cache && mkdir -p /etc/nginx/snippets
-USER nginx
+# 101 is the nginx user of nginx-unprivileged (numeric so the host/orchestrator can verify non-root)
+USER 101
 COPY deploy/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
+COPY --from=build --chown=101:101 /app/dist /usr/share/nginx/html
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=3s CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=3s CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
