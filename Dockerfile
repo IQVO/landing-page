@@ -8,7 +8,7 @@
 #   docker run --rm -p 8080:8080 iqvo-landing-page
 
 # --- build stage ---
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS build
 WORKDIR /app
 ARG SITE_URL=""
 ARG DOCS_URL=""
