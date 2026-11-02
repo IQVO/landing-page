@@ -123,6 +123,14 @@ for (const page of ['index.html', '404.html']) {
 }
 fs.writeFileSync(path.join(DIST, 'healthz'), 'ok');
 
+// crawlers: sitemap + robots pointer only when the public origin is known (absolute URLs are required)
+if (cfg.siteUrl) {
+  const today = new Date().toISOString().slice(0, 10);
+  fs.writeFileSync(path.join(DIST, 'sitemap.xml'),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${cfg.siteUrl}/</loc><lastmod>${today}</lastmod></url>\n</urlset>\n`);
+  fs.appendFileSync(path.join(DIST, 'robots.txt'), `Sitemap: ${cfg.siteUrl}/sitemap.xml\n`);
+}
+
 const size = (p) => fs.statSync(p).size;
 const total = (function walk(d) { return fs.readdirSync(d, { withFileTypes: true }).reduce((s, e) => s + (e.isDirectory() ? walk(path.join(d, e.name)) : size(path.join(d, e.name))), 0); })(DIST);
 console.log(`built dist/ (${(total / 1024).toFixed(0)} KiB, ${hashed.size} hashed assets) site=${cfg.siteUrl || '(relative)'} docs=${cfg.docsUrl}`);

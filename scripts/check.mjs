@@ -15,6 +15,8 @@ const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'site.config.json'), 'utf
 const facts = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'facts.json'), 'utf8'));
 const docsHost = new URL(process.env.DOCS_URL || cfg.docsUrl).host;
 const ghHost = new URL(cfg.githubUrl).host;
+const siteUrl = (process.env.SITE_URL || cfg.siteUrl || '').replace(/\/+$/, '');
+const siteHost = siteUrl ? new URL(siteUrl).host : null;
 
 const errors = [];
 const fail = (m) => errors.push(m);
@@ -38,7 +40,7 @@ for (const page of ['index.html', '404.html']) {
     if (/^https?:\/\//.test(v)) {
       const host = new URL(v).host;
       if (attr === 'src') fail(`${page}: external resource ${v} (the page must be self-contained)`);
-      else if (host !== docsHost && host !== ghHost) fail(`${page}: link to unexpected host ${host}`);
+      else if (host !== docsHost && host !== ghHost && host !== siteHost) fail(`${page}: link to unexpected host ${host}`);
       externals.add(v);
       continue;
     }
@@ -63,6 +65,13 @@ for (const page of ['index.html', '404.html']) {
     // every tab has a panel, every aria-controls/labelledby target exists
     for (const m of html.matchAll(/data-tab="([^"]+)"/g)) if (!html.includes(`data-panel="${m[1]}"`)) fail(`tab "${m[1]}" has no panel`);
     for (const m of html.matchAll(/aria-(?:controls|labelledby)="([^"]+)"/g)) for (const id of m[1].split(/\s+/)) if (!ids.has(id)) fail(`aria reference to missing id "${id}"`);
+
+    if (siteUrl) {
+      if (!html.includes(`<link rel="canonical" href="${siteUrl}/">`)) fail('canonical link missing or wrong origin');
+      if (!html.includes(`<meta property="og:image" content="${siteUrl}/og-image.jpg">`)) fail('og:image missing or wrong origin');
+      if (!exists('sitemap.xml') || !read('sitemap.xml').includes(`<loc>${siteUrl}/</loc>`)) fail('sitemap.xml missing or wrong origin');
+      if (!read('robots.txt').includes(`Sitemap: ${siteUrl}/sitemap.xml`)) fail('robots.txt has no Sitemap line');
+    }
 
     // ---- the study-project disclaimer must stay loud and verbatim ----
     const text = html.replace(/<[^>]+>/g, ' ').replace(/&rsquo;/g, "'").replace(/\s+/g, ' ');
@@ -90,6 +99,7 @@ for (const page of ['index.html', '404.html']) {
 
   if (online && page === 'index.html') {
     const allowedHosts = new Set([docsHost, ghHost]);
+    externals.forEach((x) => { if (new URL(x).host === siteHost) externals.delete(x); }); // own origin is not live until deployed
     for (const u of externals) {
       // Only ever probe https URLs on the two hosts this page is allowed to link to.
       const target = new URL(u);

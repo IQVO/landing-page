@@ -30,4 +30,7 @@ curl -s -H 'Accept-Encoding: gzip' -D- -o /dev/null "$BASE$CSS" | grep -qi "cont
 curl -s "$BASE/nope" | grep -q "does not exist"                            && ok "custom 404 page"            || fail "404 page"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/")" = "405" ]    && ok "405 for POST"               || fail "405"
 [ "$(docker exec "$NAME" id -u)" != "0" ]                                   && ok "runs as non-root"           || fail "root"
+curl -s "$BASE/" | grep -q '<link rel="canonical" href="https://iqvo.cloud/">'  && ok "canonical is iqvo.cloud"    || fail "canonical"
+hdr /sitemap.xml | grep -qi "^content-type: .*xml"                          && ok "sitemap.xml served"         || fail "sitemap"
+curl -s "$BASE/robots.txt" | grep -q "Sitemap: https://iqvo.cloud/sitemap.xml" && ok "robots points at sitemap" || fail "robots"
 echo "smoke passed"
