@@ -1,0 +1,25 @@
+version: 2
+updates:
+
+  # No npm entry: the project has no npm dependencies (Node is used with the standard library only).
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+
+  # Digest-pinned FROM lines (node, nginx-unprivileged) are bumped here.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies

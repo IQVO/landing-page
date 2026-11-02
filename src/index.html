@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IQVO — Can AI agents do real Domain-Driven Design?</title>
+<meta name="description" content="A study project, not a product and not production. IQVO is a Domain-Driven Design study and an open experiment in AI agents, durable memory and harness engineering across different LLMs: {{contexts}} bounded contexts in one warehouse, retail-network and storefront ecosystem.">
+<meta name="theme-color" content="#0B1D2D">
+<meta name="color-scheme" content="light">
+{{#siteUrl}}<link rel="canonical" href="{{siteUrl}}/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="IQVO">
+<meta property="og:title" content="IQVO — Can AI agents do real Domain-Driven Design?">
+<meta property="og:description" content="A study project, not a product. {{contexts}} bounded contexts, AI agents, durable memory and a harness that says no. A Domain-Driven Design study and an open experiment across different LLMs.">
+<meta property="og:url" content="{{siteUrl}}/">
+<meta property="og:image" content="{{siteUrl}}/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{siteUrl}}/og-image.jpg">
+{{/siteUrl}}<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/main.css">
+<noscript><link rel="stylesheet" href="/assets/css/noscript.css"></noscript>
+<script src="/assets/js/boot.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="sticky">
+<p class="banner" role="note">
+  <strong>A study project.</strong>
+  <span>Not a product, not production, not affiliated with any company.</span>
+</p>
+<header class="nav" id="top">
+  <div class="wrap nav__in">
+    <a class="brand" href="#top" aria-label="IQVO Warehouse Systems, back to top">
+      <img src="/assets/img/iqvo-logo.png" width="130" height="46" alt="IQVO Warehouse Systems">
+    </a>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-controls="menu">
+      <span class="nav__bars" aria-hidden="true"></span><span class="sr">Menu</span>
+    </button>
+    <nav class="nav__menu" id="menu" aria-label="Primary">
+      <ul class="nav__links">
+        <li><a href="#experiment">Experiment</a></li>
+        <li><a href="#models">Models</a></li>
+        <li><a href="#ledger">AI usage</a></li>
+        <li><a href="#harness">Harness</a></li>
+        <li><a href="#memory">Memory</a></li>
+        <li><a href="#ecosystem">Ecosystem</a></li>
+      </ul>
+      <div class="nav__cta">
+        <a class="btn btn--ghost btn--sm" href="{{github}}" rel="noopener">GitHub<span aria-hidden="true"> ↗</span></a>
+        <a class="btn btn--solid btn--sm" href="{{docs}}/" rel="noopener">Documentation<span aria-hidden="true"> ↗</span></a>
+      </div>
+    </nav>
+  </div>
+</header>
+</div>
+
+<main id="main">
+
+<!-- ============================ HERO ============================ -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap hero__grid">
+    <div class="hero__copy">
+      <p class="acronym" aria-label="IQVO stands for Inventory, Queue, Value, Orchestration">
+        <span><b>I</b>nventory</span><span><b>Q</b>ueue</span><span><b>V</b>alue</span><span><b>O</b>rchestration</span>
+      </p>
+      <h1 id="hero-title">Can AI agents do <em>real</em> Domain&#8209;Driven Design?</h1>
+      <p class="lede">
+        IQVO is a study and an open experiment. {{contexts}} bounded contexts &mdash; a warehouse, a retail network and a storefront &mdash;
+        modelled with DDD and built by AI agents, a memory that outlives every session and a harness of tests that can say&nbsp;no.
+        We swap the LLM and watch what actually changes.
+      </p>
+      <div class="cta">
+        <a class="btn btn--solid" href="{{docs}}/" rel="noopener">Read the documentation<span aria-hidden="true"> ↗</span></a>
+        <a class="btn btn--ghost" href="{{github}}" rel="noopener">Explore the code on GitHub<span aria-hidden="true"> ↗</span></a>
+      </div>
+      <p class="honesty">
+        <span class="pip" aria-hidden="true"></span>
+        <span><strong>A study project.</strong> Not a product, not production, not affiliated with any company.</span>
+      </p>
+    </div>
+
+    <figure class="mapcard" data-map aria-labelledby="map-cap">
+      <div class="mapcard__bar">
+        <p class="mono mapcard__title">Event map <span>·</span> {{contexts}} contexts <span>·</span> {{edges}} routes</p>
+        <div class="seg" role="radiogroup" aria-label="Colour the map by" data-map-modes>
+          <button type="button" role="radio" aria-checked="true" data-mode="domain">Domain</button>
+          <button type="button" role="radio" aria-checked="false" data-mode="strategy">Strategy</button>
+          <button type="button" role="radio" aria-checked="false" data-mode="agents">Agent surface</button>
+        </div>
+      </div>
+      <div class="mapcard__stage" data-map-stage tabindex="0" role="group" aria-label="Map of bounded contexts. Use left and right arrow keys to move between contexts.">
+        <noscript><p class="mapcard__ns">The interactive map needs JavaScript. The {{contexts}} contexts are listed with their purpose in the <a href="{{docs}}/contexts" rel="noopener">documentation</a>.</p></noscript>
+      </div>
+      <div class="mapcard__info" data-map-info aria-live="polite">
+        <p class="mono mapcard__hint">Hover, tap or arrow-key through a context</p>
+      </div>
+      <ul class="legend" data-map-legend aria-label="Legend"></ul>
+      <figcaption id="map-cap" class="mapcard__cap">Each pulse is a CloudEvent route between two contexts, drawn from the real AsyncAPI contracts. The traffic is illustrative, not live.</figcaption>
+    </figure>
+  </div>
+
+  <div class="wrap">
+    <dl class="telemetry" aria-label="The record so far">
+      <div><dt>bounded contexts</dt><dd>{{contexts}}</dd></div>
+      <div><dt>event routes</dt><dd>{{edges}}</dd></div>
+      <div><dt>MCP servers</dt><dd>{{mcp}}</dd></div>
+      <div><dt>decision records</dt><dd>{{adrs}}</dd></div>
+      <div><dt>commits</dt><dd>{{commits}}</dd></div>
+      <div><dt>days since first commit</dt><dd>{{days}}</dd></div>
+    </dl>
+    <p class="telemetry__src mono">Counted from the repositories by <code>scripts/collect-facts.mjs</code> on {{updated}}. First commit {{first}}.</p>
+  </div>
+</section>
+
+<!-- ============================ READ THIS FIRST ============================ -->
+<section class="notice" id="not" aria-labelledby="not-title">
+  <div class="wrap notice__in">
+    <div class="notice__head">
+      <p class="kicker">Read this first</p>
+      <h2 id="not-title">What IQVO <em>is not.</em></h2>
+    </div>
+    <ul class="notice__list">
+      <li><b>A study project.</b><span>A Domain-Driven Design exercise and an experiment with AI agents. Nobody should build on it as if it were finished software.</span></li>
+      <li><b>Not a product.</b><span>Nothing here is for sale, supported or on a roadmap. There are no customers, and no service levels.</span></li>
+      <li><b>Not production.</b><span>It runs on a single-node local cluster with one Kafka broker. REST and MCP are deliberately unauthenticated, so do not expose it to a network you do not control.</span></li>
+      <li><b>Not affiliated with any company.</b><span>It is not endorsed by anyone and uses no company&rsquo;s code, data, logos or trademarks. Names, figures and examples are illustrative or synthetic.</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================ 01 EXPERIMENT ============================ -->
+<section class="section section--white" id="experiment" aria-labelledby="exp-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 01 &middot; The experiment</p>
+      <h2 id="exp-title">One system. <em>Five variables.</em></h2>
+      <p class="sec-lede">
+        A warehouse is a good excuse: it is rich enough to need real boundaries and boring enough to keep us honest.
+        The question underneath is not about warehouses. When a language model writes the code, <strong>what makes the result trustworthy?</strong>
+      </p>
+    </header>
+
+    <ol class="protocol">
+      <li class="protocol__row reveal">
+        <span class="protocol__n" aria-hidden="true">01</span>
+        <div class="protocol__role"><span class="mono">the constant</span><h3>Domain</h3></div>
+        <div class="protocol__body">
+          <p>Domain-Driven Design end to end: Big Picture EventStorming, a context map, core-domain charts, a ubiquitous language per context, aggregates, and a bounded-context canvas for each of the {{contexts}} services.</p>
+          <p class="proof mono"><a href="{{docs}}/strategic-design" rel="noopener">strategic-design/</a> · <a href="{{docs}}/strategic-design/context-map" rel="noopener">context-map</a></p>
+        </div>
+      </li>
+      <li class="protocol__row reveal">
+        <span class="protocol__n" aria-hidden="true">02</span>
+        <div class="protocol__role"><span class="mono">the labour</span><h3>Agents</h3></div>
+        <div class="protocol__body">
+          <p>AI agents implement, test, document, review and open pull requests. The services are built for them too: {{mcp}} expose an MCP server for tools and all {{a2a}} publish an A2A agent card so one context can delegate a goal to another.</p>
+          <p class="proof mono"><a href="{{docs}}/architecture/a2a-agents" rel="noopener">architecture/a2a-agents</a> · warehouse-ops-agent</p>
+        </div>
+      </li>
+      <li class="protocol__row reveal">
+        <span class="protocol__n" aria-hidden="true">03</span>
+        <div class="protocol__role"><span class="mono">the brain</span><h3>Memory</h3></div>
+        <div class="protocol__body">
+          <p>Lessons live in files, not in a context window: decision records, an incident log, repository memory, skills and an orchestrator that remembers across sessions. A new agent starts with what the last one learned.</p>
+          <p class="proof mono"><a href="#memory">{{adrs}} ADRs</a> · <a href="#memory">{{incidents}} incidents</a> · MEMORY.md</p>
+        </div>
+      </li>
+      <li class="protocol__row reveal">
+        <span class="protocol__n" aria-hidden="true">04</span>
+        <div class="protocol__role"><span class="mono">the walls</span><h3>Harness</h3></div>
+        <div class="protocol__body">
+          <p>Guides steer an agent before it acts; sensors check what it did. Every sensor exists because something broke once, and each broken thing became a test that runs on every future change.</p>
+          <p class="proof mono"><a href="#harness">{{fitness}} fitness tests</a> · <a href="{{github}}/warehouse-harness-template" rel="noopener">warehouse-harness-template</a></p>
+        </div>
+      </li>
+      <li class="protocol__row protocol__row--var reveal">
+        <span class="protocol__n" aria-hidden="true">05</span>
+        <div class="protocol__role"><span class="mono">the variable</span><h3>Model</h3></div>
+        <div class="protocol__body">
+          <p>The one thing we change on purpose. Several Claude generations appear in the git history, other LLMs drive orchestration sessions, and the same hooks run under Claude Code, Codex and OpenCode.</p>
+          <p class="proof mono"><a href="#models">swap the model ↓</a></p>
+        </div>
+      </li>
+    </ol>
+
+    <aside class="hypothesis reveal" aria-labelledby="hyp-title">
+      <p class="mono hypothesis__tag" id="hyp-title">Working hypothesis</p>
+      <p class="hypothesis__text">The model is the replaceable part. The domain model, the memory and the harness are what make agent output trustworthy.</p>
+      <p class="hypothesis__status"><strong>Status: partly supported.</strong> Our own measurements, including the results that did not pan out, are in <a href="#harness">the harness section</a>.</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ============================ 02 MODELS ============================ -->
+<section class="section section--dark" id="models" aria-labelledby="swap-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 02 &middot; Different LLMs</p>
+      <h2 id="swap-title">Swap the model. <em>Keep the walls.</em></h2>
+      <p class="sec-lede">
+        These are the models that leave a mark in our history, plus the one that orchestrates some sessions.
+        Pick one: the only box that changes is the first. Everything an agent&rsquo;s work has to pass through stays put.
+      </p>
+    </header>
+
+    <div class="swap reveal" data-swap>
+      <div class="swap__models" role="radiogroup" aria-label="Choose a model">
+        <button type="button" role="radio" aria-checked="true" class="model" data-model="Claude Sonnet 5.5" data-n="{{tr.sonnet55}}" data-note="commits carry this co-author trailer, the most of any model so far.">
+          <span class="model__name">Claude Sonnet 5.5</span>
+          <span class="model__meta mono">{{tr.sonnet55}} trailers</span>
+          <progress class="model__bar" value="{{tr.sonnet55}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress>
+        </button>
+        <button type="button" role="radio" aria-checked="false" class="model" data-model="Claude Opus 5.5" data-n="{{tr.opus55}}" data-note="commits carry this co-author trailer.">
+          <span class="model__name">Claude Opus 5.5</span>
+          <span class="model__meta mono">{{tr.opus55}} trailers</span>
+          <progress class="model__bar" value="{{tr.opus55}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress>
+        </button>
+        <button type="button" role="radio" aria-checked="false" class="model" data-model="Claude Sonnet 5" data-n="{{tr.sonnet5}}" data-note="commits carry this co-author trailer.">
+          <span class="model__name">Claude Sonnet 5</span>
+          <span class="model__meta mono">{{tr.sonnet5}} trailers</span>
+          <progress class="model__bar" value="{{tr.sonnet5}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress>
+        </button>
+        <button type="button" role="radio" aria-checked="false" class="model" data-model="Claude Opus 5 (1M context)" data-n="{{tr.opus5}}" data-note="commits carry this co-author trailer.">
+          <span class="model__name">Claude Opus 5 <small>1M context</small></span>
+          <span class="model__meta mono">{{tr.opus5}} trailers</span>
+          <progress class="model__bar" value="{{tr.opus5}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress>
+        </button>
+        <button type="button" role="radio" aria-checked="false" class="model model--other" data-model="Kimi K3" data-n="" data-note="No git trailer, so we cannot count its commits. It drives some orchestration sessions through the same hooks and gates.">
+          <span class="model__name">Kimi K3</span>
+          <span class="model__meta mono">orchestration sessions</span>
+          <progress class="model__bar" value="0" max="{{tr.sonnet55}}" aria-hidden="true"></progress>
+        </button>
+        <p class="swap__verdict" data-swap-verdict aria-live="polite"></p>
+        <p class="swap__fine mono">Trailer counts are a floor, not a share. {{tr.total}} of {{commits}} commits carry an explicit Claude co-author trailer; not every AI-assisted commit is tagged.</p>
+      </div>
+
+      <div class="swap__stack" data-swap-stack>
+        <ol class="stack" aria-label="What every change passes through">
+          <li class="stage stage--model" data-stage="0">
+            <span class="stage__tag mono">swappable</span>
+            <p class="stage__title" data-swap-name>Claude Sonnet 5.5</p>
+            <p class="stage__text">Reads the same <code>AGENTS.md</code>, writes the same kind of diff.</p>
+          </li>
+          <li class="stage" data-stage="1">
+            <span class="stage__tag mono">guides · before it acts</span>
+            <p class="stage__title">AGENTS.md, path-scoped rules, skills</p>
+            <p class="stage__text">Ubiquitous language, the CloudEvents contract, the no-auth decision, how-tos for recurring tasks.</p>
+          </li>
+          <li class="stage" data-stage="2">
+            <span class="stage__tag mono">runtime hooks</span>
+            <p class="stage__title">Claude Code · Codex · OpenCode</p>
+            <p class="stage__text">One hook script, three adapters. It blocks pushes to develop and main, <code>--no-verify</code>, and edits to generated files.</p>
+          </li>
+          <li class="stage" data-stage="3">
+            <span class="stage__tag mono">sensors · after it acts</span>
+            <p class="stage__title">pre-commit → pre-push → pull request</p>
+            <p class="stage__text">Format, lint, race tests, 90% coverage, BDD, architecture fitness, containers, mutation testing, vulnerability and API-contract checks.</p>
+          </li>
+          <li class="stage" data-stage="4">
+            <span class="stage__tag mono">review · advisory</span>
+            <p class="stage__title">Code, architecture and domain review</p>
+            <p class="stage__text">Isolated sub-agents that never share context with the turn that wrote the diff.</p>
+          </li>
+          <li class="stage" data-stage="5">
+            <span class="stage__tag mono">memory</span>
+            <p class="stage__title">Write the lesson back</p>
+            <p class="stage__text">A new fact becomes an ADR, a MEMORY.md line or an incident row, and ideally a test.</p>
+          </li>
+          <li class="stage stage--human" data-stage="6">
+            <span class="stage__tag mono">merge · human rules</span>
+            <p class="stage__title">Green CI merges. Red never does.</p>
+            <p class="stage__text">Irreversible steps still wait for a person to say go.</p>
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <p class="caveat reveal"><strong>What we have not done:</strong> benchmark these models against each other. The comparison we do have is of the harness itself, and its results are in <a href="#harness">the harness section</a>.</p>
+  </div>
+</section>
+
+<!-- ============================ 03 LEDGER ============================ -->
+<section class="section" id="ledger" aria-labelledby="ledger-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 03 &middot; AI usage, in plain words</p>
+      <h2 id="ledger-title">Agents do most of the typing. <em>People own the claims.</em></h2>
+      <p class="sec-lede">This ecosystem is built with AI, openly. Here is who decides, who does and who checks.</p>
+    </header>
+
+    <div class="table-wrap reveal">
+      <table class="matrix">
+        <caption class="sr">Who decides, who does and who checks, by activity</caption>
+        <thead>
+          <tr><th scope="col">Activity</th><th scope="col"><span class="who who--h">Human</span></th><th scope="col"><span class="who who--a">Agent</span></th><th scope="col"><span class="who who--m">Machine</span></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Set direction and hard constraints</th>
+            <td><strong>Decides.</strong> &ldquo;No auth on REST or MCP.&rdquo; &ldquo;CloudEvents only.&rdquo; Applied fleet-wide, not debated.</td>
+            <td>Proposes options, then applies the call everywhere.</td>
+            <td>Encodes it as a fitness test so it cannot drift quietly.</td>
+          </tr>
+          <tr>
+            <th scope="row">Write code, tests, docs</th>
+            <td>Reviews by exception; reads the decisions.</td>
+            <td><strong>Does the typing:</strong> implements, tests, documents, opens the PR.</td>
+            <td>Lint, coverage, mutation and contract checks on every change.</td>
+          </tr>
+          <tr>
+            <th scope="row">Accept an architecture decision</th>
+            <td><strong>Decides.</strong></td>
+            <td>Drafts the ADR with the trade-offs.</td>
+            <td>Fitness tests enforce it afterwards.</td>
+          </tr>
+          <tr>
+            <th scope="row">Merge to develop</th>
+            <td>Sets the standing rule: merge when CI is green, never when it is red.</td>
+            <td>Merges once green.</td>
+            <td><strong>Decides what &ldquo;green&rdquo; means;</strong> branch protection blocks the rest.</td>
+          </tr>
+          <tr>
+            <th scope="row">Irreversible steps<span class="th-sub">destroy a cluster, force-push, lose data</span></th>
+            <td><strong>Authorizes explicitly, beforehand.</strong></td>
+            <td>Waits for the word.</td>
+            <td>Hooks refuse pushes to develop and main and <code>--no-verify</code>.</td>
+          </tr>
+          <tr>
+            <th scope="row">Say what is true in the docs</th>
+            <td>Owns the claims.</td>
+            <td>Audits docs against code and fixes the drift it finds.</td>
+            <td>Drift checks fail the build when spec and docs disagree.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="split">
+      <div class="reveal">
+        <h3 class="h3">What git can prove</h3>
+        <p>{{tr.total}} of {{commits}} commits across the IQVO repositories carry an explicit <code>Co-Authored-By: Claude</code> trailer. We treat that as a floor. Plenty of agent work lands under a human author, in squashed merges or with no trailer, and we would rather under-claim than invent a percentage.</p>
+        <ul class="bars" aria-label="Co-author trailers by model">
+          <li><span>Claude Sonnet 5.5</span><progress value="{{tr.sonnet55}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress><b class="mono">{{tr.sonnet55}}</b></li>
+          <li><span>Claude Opus 5.5</span><progress value="{{tr.opus55}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress><b class="mono">{{tr.opus55}}</b></li>
+          <li><span>Claude Sonnet 5</span><progress value="{{tr.sonnet5}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress><b class="mono">{{tr.sonnet5}}</b></li>
+          <li><span>Claude Opus 5</span><progress value="{{tr.opus5}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress><b class="mono">{{tr.opus5}}</b></li>
+          <li><span>Claude, unversioned</span><progress value="{{tr.other}}" max="{{tr.sonnet55}}" aria-hidden="true"></progress><b class="mono">{{tr.other}}</b></li>
+        </ul>
+      </div>
+      <div class="limits reveal">
+        <h3 class="h3">Known limits</h3>
+        <ul class="ticks">
+          <li><strong>It is a study.</strong> Not production, not a product, not a benchmark.</li>
+          <li><strong>REST and MCP are unauthenticated</strong> across the fleet, by a deliberate decision for the study. Do not expose it.</li>
+          <li><strong>Small samples.</strong> Our harness evaluations are one model and small n. We say so where we publish them.</li>
+          <li><strong>Built is not deployed.</strong> The {{storefront}} storefront contexts are built on <code>develop</code> and not running in the reference cluster.</li>
+          <li><strong>One broker, one node.</strong> The reference deployment is a single-node kind cluster with one Kafka broker.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 04 HARNESS ============================ -->
+<section class="section section--white" id="harness" aria-labelledby="harness-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 04 &middot; Harness engineering</p>
+      <h2 id="harness-title">Every rule is <em>a scar.</em></h2>
+      <p class="sec-lede">
+        We follow the guides-and-sensors model from Birgitta B&ouml;ckeler&rsquo;s &ldquo;Harness engineering for coding agent users&rdquo; (martinfowler.com, 2026):
+        <strong>guides</strong> steer an agent before it acts, <strong>sensors</strong> check after. Nothing is added speculatively. A failure that gets through ends with a fix, a sensor, a fleet-wide roll-out and a row in the incident log.
+      </p>
+    </header>
+
+    <ol class="lifecycle reveal" aria-label="Where each sensor runs">
+      <li><span class="lifecycle__when mono">pre-commit<small>seconds</small></span>
+        <ul class="chips"><li>gofmt</li><li>golangci-lint</li><li>go vet</li><li>fast tests</li></ul></li>
+      <li><span class="lifecycle__when mono">pre-push<small>minutes</small></span>
+        <ul class="chips"><li>coverage ≥ 90%</li><li>godog BDD</li><li>architecture fitness</li></ul></li>
+      <li><span class="lifecycle__when mono">pull request<small>CI, blocking</small></span>
+        <ul class="chips"><li>testcontainers</li><li>mutation (gremlins)</li><li>govulncheck</li><li>Spectral API lint</li><li>docs drift</li><li>CodeQL</li><li>Trivy</li></ul></li>
+      <li><span class="lifecycle__when mono">weekly<small>advisory</small></span>
+        <ul class="chips"><li>full mutation run</li><li>dead-code &amp; dependency drift</li><li>Scorecard</li><li>cross-repo e2e</li></ul></li>
+    </ol>
+
+    <div class="scars reveal" data-tabs>
+      <div class="scars__list" role="tablist" aria-label="Incidents that became tests" data-tablist>
+        <button type="button" data-tab="auth" class="scar-tab">An agent&rsquo;s helpful idea<span class="mono">decision of record</span></button>
+        <button type="button" data-tab="envelope" class="scar-tab">The half-finished migration<span class="mono">CloudEvents</span></button>
+        <button type="button" data-tab="skip" class="scar-tab">Tests that skipped themselves<span class="mono">Postgres · 11 repos</span></button>
+        <button type="button" data-tab="outbox" class="scar-tab">The row that blocked everything<span class="mono">outbox relay</span></button>
+        <button type="button" data-tab="acks" class="scar-tab">Fire-and-forget by default<span class="mono">Kafka acks</span></button>
+        <button type="button" data-tab="mcp" class="scar-tab">Optional that was required<span class="mono">MCP tools</span></button>
+        <button type="button" data-tab="sentence" class="scar-tab">A sentence is not a sensor<span class="mono">docs convention</span></button>
+      </div>
+      <div class="scars__panels">
+        <article class="scar" data-panel="auth" aria-labelledby="s-auth">
+          <p class="mono scar__date">2026-09-11 · fleet-wide decision</p>
+          <h3 id="s-auth">Static bearer auth was reverted. An agent could quietly put it back.</h3>
+          <p>The fleet deliberately runs REST, MCP and A2A unauthenticated for the study. An agent that &ldquo;helpfully&rdquo; adds auth middleware is doing the sensible thing in the wrong repository.</p>
+          <p class="scar__guard"><span class="mono">guard</span><code>TestNoAuthMiddlewareReintroduced</code> The attempt fails CI instead of shipping unreviewed. Re-adopting auth is a human decision plus an ADR first.</p>
+        </article>
+        <article class="scar" data-panel="envelope" aria-labelledby="s-env">
+          <p class="mono scar__date">2026-09-30 · cutover</p>
+          <h3 id="s-env">Every repo had its own event envelope, and several grew a dual-mode toggle &ldquo;while migrating&rdquo;.</h3>
+          <p>The fleet sat half-migrated to CloudEvents for months. The cutover made CloudEvents 1.0 the only envelope on every Kafka message.</p>
+          <p class="scar__guard"><span class="mono">guard</span><code>TestNoEventEnvelopeToggleOrFlatEnvelope</code> Fails on any envelope toggle, or a struct that declares both the flat <code>event_id</code> and <code>event_type</code> tags.</p>
+        </article>
+        <article class="scar" data-panel="skip" aria-labelledby="s-skip">
+          <p class="mono scar__date">2026-10-06</p>
+          <h3 id="s-skip">A repository test never ran in CI. The same shape was hiding in ten more repos.</h3>
+          <p>Integration tests gated on <code>DATABASE_URL</code> plus <code>t.Skip</code> pass silently wherever the variable is unset. Green, and proving nothing.</p>
+          <p class="scar__guard"><span class="mono">guard</span><code>TestPostgresIntegrationTestsUseTestcontainers</code> and a twin test that proves the sensor can fail, because a sensor that cannot fail is decoration.</p>
+        </article>
+        <article class="scar" data-panel="outbox" aria-labelledby="s-outbox">
+          <p class="mono scar__date">2026-10-12</p>
+          <h3 id="s-outbox">One outbox row that could never be sent would block a context&rsquo;s relay forever.</h3>
+          <p>The relay had no attempt cap and no dead-letter path. Found in inventory-storage, then checked everywhere.</p>
+          <p class="scar__guard"><span class="mono">guard</span><code>TestOutboxRelaysPassAttemptCap</code> Every relay under <code>cmd/</code> must pass <code>WithMaxAttempts</code>.</p>
+        </article>
+        <article class="scar" data-panel="acks" aria-labelledby="s-acks">
+          <p class="mono scar__date">2026-10-13</p>
+          <h3 id="s-acks">The Kafka client defaults to fire-and-forget. A broker blip silently dropped messages.</h3>
+          <p>Publishers and dead-letter writers in several repos never set <code>RequiredAcks</code>, so the default of acks=0 applied.</p>
+          <p class="scar__guard"><span class="mono">guard</span><code>kafka_writer_acks_fitness_test.go</code> Every production writer literal must set it, with a test that proves the sensor bites on bad fixtures.</p>
+        </article>
+        <article class="scar" data-panel="mcp" aria-labelledby="s-mcp">
+          <p class="mono scar__date">2026-10-12</p>
+          <h3 id="s-mcp">Tools described a filter as optional. The MCP SDK published it as required.</h3>
+          <p>Every call without the filter failed with <code>missing properties</code>, in five contexts. An agent calling the tool could not tell why.</p>
+          <p class="scar__guard"><span class="mono">guard</span><code>TestMCPOptionalToolInputsCarryOmitempty</code> A field described as optional must carry <code>omitempty</code>.</p>
+        </article>
+        <article class="scar" data-panel="sentence" aria-labelledby="s-sentence">
+          <p class="mono scar__date">2026-10-05 · from our own evals</p>
+          <h3 id="s-sentence">&ldquo;Update the event catalogue when you add an event&rdquo; was followed about half the time.</h3>
+          <p>With guides or without. A sentence in a skill is advice. A test is a rule.</p>
+          <p class="scar__guard"><span class="mono">guard</span><code>TestEventCatalogueMatchesContract</code> Every event type a service declares must appear in a CloudEvents ADR. It documents what it cannot see, too.</p>
+        </article>
+      </div>
+    </div>
+
+    <p class="ledger-line mono reveal">{{incidents}} incidents logged · {{guarded}} fully guarded · {{fitness}} architecture fitness tests in the template · <a href="{{github}}/warehouse-harness-template" rel="noopener">read the log</a></p>
+
+    <div class="evals reveal">
+      <div class="evals__head">
+        <p class="kicker kicker--teal">We measured the harness itself</p>
+        <h3>Honest limits first: one repo, one model, small n.</h3>
+      </div>
+      <div class="evals__body">
+        <p>We ran the harness against a bare repository in three rounds of agent sessions, with objective gates and transcript checks. Some of it we got wrong, and the write-up says where.</p>
+        <ul class="ticks ticks--plain">
+          <li><strong>The guides&rsquo; clearest value:</strong> stopping the rare destructive shortcut. In round 1 the only failure in 24 runs was a bare agent pushing straight to develop.</li>
+          <li><strong>Code outcomes did not depend on the guides.</strong> The repository&rsquo;s structure, fitness tests and spec linters carried it.</li>
+          <li><strong>The round-2 hypothesis did not replicate.</strong> Convention-following looked better with guides in one repo and reversed in another.</li>
+          <li><strong>Consequence:</strong> do not rely on prose to keep cross-file docs current. Make staleness a sensor.</li>
+        </ul>
+        <p class="mono evals__src">source: <a href="{{github}}/warehouse-harness-template" rel="noopener">warehouse-harness-template / EVALS.md</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 05 MEMORY ============================ -->
+<section class="section section--dark" id="memory" aria-labelledby="mem-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 05 &middot; Brain memory</p>
+      <h2 id="mem-title">A brain that outlives <em>the context window.</em></h2>
+      <p class="sec-lede">An agent forgets everything when its session ends. The repositories do not. Each layer below keeps a different kind of knowledge alive for a different length of time.</p>
+    </header>
+
+    <div class="axis mono" aria-hidden="true"><span>survives a session</span><span class="axis__line"></span><span>survives the whole fleet</span></div>
+    <ol class="ladder">
+      <li class="rung reveal" data-life="1">
+        <div class="rung__k mono">minutes</div>
+        <div class="rung__t"><h3>Context window</h3><p>What the agent holds right now. Gone when the session closes.</p></div>
+      </li>
+      <li class="rung reveal" data-life="2">
+        <div class="rung__k mono">per task</div>
+        <div class="rung__t"><h3>Guides and skills</h3><p><code>AGENTS.md</code>, path-scoped rules, how-to skills. Loaded when a matching file is touched, about 50 tokens each until used.</p></div>
+      </li>
+      <li class="rung reveal" data-life="3">
+        <div class="rung__k mono">per repo</div>
+        <div class="rung__t"><h3>Repository memory</h3><p><code>.claude/memory/MEMORY.md</code>: heuristics that need no test, one lesson per entry, stated as a fact with its evidence. <em>A pure classifier measured 89.91% mutation coverage as a switch and 97.17% as an if-chain, with no test changes.</em></p></div>
+      </li>
+      <li class="rung reveal" data-life="4">
+        <div class="rung__k mono">per incident</div>
+        <div class="rung__t"><h3>Incident log</h3><p>{{incidents}} rows. Each failure ends with the fix, a sensor, the sensor rolled out fleet-wide, and a row here. A row with no guard is an open gap and says so.</p></div>
+      </li>
+      <li class="rung reveal" data-life="5">
+        <div class="rung__k mono">per decision</div>
+        <div class="rung__t"><h3>Decision records</h3><p>{{adrs}} ADRs across the contexts: the reason behind each choice, so an agent can tell a rule from an accident. The index links out; ADRs are never copied.</p></div>
+      </li>
+      <li class="rung reveal" data-life="6">
+        <div class="rung__k mono">fleet-wide</div>
+        <div class="rung__t"><h3>Fleet canon</h3><p>Rules no single repository owns live once in <a href="{{github}}/warehouse-docs" rel="noopener">warehouse-docs</a>; every service carries byte-identical copies. Edit at the source, then re-sync.</p></div>
+      </li>
+    </ol>
+
+    <aside class="orchestrator reveal">
+      <p class="mono">outside the repositories</p>
+      <p>The orchestrating agent keeps its own persistent memory and skill library across sessions. After a hard task it writes the procedure back, so the next run, with any model, starts from what the last one learned about how this work is done.</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ============================ 06 ECOSYSTEM ============================ -->
+<section class="section" id="ecosystem" aria-labelledby="eco-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 06 &middot; The ecosystem</p>
+      <h2 id="eco-title">Why it <em>holds together.</em></h2>
+      <p class="sec-lede">Six properties that make a {{contexts}}-service system something an agent can work in without breaking it.</p>
+    </header>
+
+    <ol class="strengths">
+      <li class="strength reveal">
+        <h3><span class="strength__n mono">A</span>Boundaries you can see</h3>
+        <div>
+          <p>{{contexts}} bounded contexts in four domains &mdash; WMS ({{wms}}), WES ({{wes}}), Retail Network ({{retail}}) and Digital Storefront ({{storefront}}) &mdash; each classified Core, Supporting or Generic. Two contexts are barred from calling a sibling at all: they live on events and local copies.</p>
+          <p class="proof mono"><a href="{{docs}}/strategic-design/context-map" rel="noopener">context map</a> · process-path-management · labor-performance</p>
+        </div>
+      </li>
+      <li class="strength reveal">
+        <h3><span class="strength__n mono">B</span>One event language</h3>
+        <div>
+          <p>CloudEvents 1.0 on every Kafka message, in a single naming scheme. {{edges}} producer-to-consumer routes are catalogued in AsyncAPI and in the EventCatalog, so a new agent can read the topology instead of guessing it.</p>
+          <p class="proof mono"><a href="{{docs}}/strategic-design/event-standard-cloudevents" rel="noopener">CloudEvents standard</a> · <a href="{{github}}/ecosystem" rel="noopener">EventCatalog</a></p>
+        </div>
+      </li>
+      <li class="strength reveal">
+        <h3><span class="strength__n mono">C</span>Hexagonal, enforced</h3>
+        <div>
+          <p>Ports and adapters is not a diagram here, it is a failing build. Fitness tests keep the domain from importing adapters and keep MCP and A2A as additive inbound adapters that nothing may depend on.</p>
+          <p class="proof mono">arch-go · ADR&#8209;0008 · TestHexagonalArchitecture</p>
+        </div>
+      </li>
+      <li class="strength reveal">
+        <h3><span class="strength__n mono">D</span>Built for agents, not only people</h3>
+        <div>
+          <p>{{mcp}} contexts ship an MCP server and all {{a2a}} an A2A agent card. Kafka carries facts, MCP carries an agent&rsquo;s tools, A2A carries the delegation of a goal: three transports, no overlap. The ops agent&rsquo;s one write path is human-gated.</p>
+          <p class="proof mono"><a href="{{docs}}/architecture/a2a-agents" rel="noopener">A2A agents</a> · <a href="{{github}}/warehouse-ops-agent" rel="noopener">warehouse-ops-agent</a></p>
+        </div>
+      </li>
+      <li class="strength reveal">
+        <h3><span class="strength__n mono">E</span>Contracts as code</h3>
+        <div>
+          <p>OpenAPI and AsyncAPI for every context, linted with Spectral, regenerated into the documentation and drift-checked in CI. If the spec and the docs disagree, the build says so.</p>
+          <p class="proof mono"><a href="{{docs}}/api-reference" rel="noopener">API reference</a> · docs-api-drift</p>
+        </div>
+      </li>
+      <li class="strength reveal">
+        <h3><span class="strength__n mono">F</span>Kubernetes-native and observable</h3>
+        <div>
+          <p>A kind cluster provisioned with Terraform and Helm, Kong at the edge, OpenTelemetry signals and Prometheus alert rules. Honest about scope: it is a single-node reference deployment, and the storefront is built but not deployed.</p>
+          <p class="proof mono"><a href="{{github}}/warehouse-infra" rel="noopener">warehouse-infra</a> · <a href="{{docs}}/fleet-operations/alert-catalogue" rel="noopener">alert catalogue</a></p>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============================ 07 DOCS ============================ -->
+<section class="section section--white" id="docs" aria-labelledby="docs-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 07 &middot; Go deeper</p>
+      <h2 id="docs-title">Read the work, <em>not just the pitch.</em></h2>
+    </header>
+
+    <div class="links reveal">
+      <section aria-labelledby="l-docs">
+        <h3 id="l-docs" class="mono links__h">Documentation</h3>
+        <ul>
+          <li><a href="{{docs}}/overview" rel="noopener"><b>Overview</b><span>What the fleet is and how to read it</span></a></li>
+          <li><a href="{{docs}}/strategic-design" rel="noopener"><b>Strategic design</b><span>Vision, core domain chart, EventStorming, context map</span></a></li>
+          <li><a href="{{docs}}/contexts" rel="noopener"><b>Bounded contexts</b><span>Canvas, aggregates, events and runbook per context</span></a></li>
+          <li><a href="{{docs}}/network" rel="noopener"><b>Retail network</b><span>The second domain: node, promise and parcel logistics</span></a></li>
+          <li><a href="{{docs}}/storefront" rel="noopener"><b>Digital storefront</b><span>Content, pricing, cart, checkout, payments</span></a></li>
+          <li><a href="{{docs}}/fleet-health/ecosystem-gaps" rel="noopener"><b>Ecosystem gaps</b><span>What is still wrong, written down</span></a></li>
+        </ul>
+      </section>
+      <section aria-labelledby="l-gh">
+        <h3 id="l-gh" class="mono links__h">GitHub &middot; {{repos}} public repositories</h3>
+        <ul>
+          <li><a href="{{github}}" rel="noopener"><b>github.com/IQVO</b><span>The organisation: every service, library and doc site</span></a></li>
+          <li><a href="{{github}}/warehouse-docs" rel="noopener"><b>warehouse-docs</b><span>The documentation source and the canonical agent rules</span></a></li>
+          <li><a href="{{github}}/warehouse-harness-template" rel="noopener"><b>warehouse-harness-template</b><span>Guides, sensors, incidents and evals</span></a></li>
+          <li><a href="{{github}}/ecosystem" rel="noopener"><b>ecosystem</b><span>The EventCatalog of every event and API</span></a></li>
+          <li><a href="{{github}}/warehouse-ops-agent" rel="noopener"><b>warehouse-ops-agent</b><span>The decision-support agent over the MCP surfaces</span></a></li>
+          <li><a href="{{github}}/warehouse-infra" rel="noopener"><b>warehouse-infra</b><span>Terraform, Helm and the kind cluster</span></a></li>
+        </ul>
+      </section>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ CTA ============================ -->
+<section class="finale" aria-labelledby="finale-title">
+  <div class="wrap finale__in">
+    <h2 id="finale-title" class="reveal">Read it. Poke holes in it. <em>Steal the idea.</em></h2>
+    <p class="reveal">The most useful thing you can do with an experiment is try to break it.</p>
+    <div class="cta reveal">
+      <a class="btn btn--mint" href="{{docs}}/" rel="noopener">Open the documentation<span aria-hidden="true"> ↗</span></a>
+      <a class="btn btn--line" href="{{github}}" rel="noopener">Browse the code<span aria-hidden="true"> ↗</span></a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__grid">
+    <div class="foot__brand">
+      <img src="/assets/img/iqvo-logo.png" width="119" height="42" alt="IQVO Warehouse Systems" loading="lazy">
+      <p class="foot__tag">Inventory + Queue + Value + Orchestration. A study of Domain-Driven Design with AI agents.</p>
+    </div>
+    <div class="foot__disc">
+      <h2 class="mono foot__h">Disclaimer</h2>
+      <p>This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company&rsquo;s code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.</p>
+    </div>
+    <div class="foot__made">
+      <h2 class="mono foot__h">How this page was made</h2>
+      <p>Designed and written by Claude Sonnet 5.5 under human direction. Every number is counted from the repositories by a script on {{updated}}; none is typed from memory. Static HTML, CSS and JS served by nginx. Fonts: Bricolage Grotesque, Instrument Serif and JetBrains Mono (SIL OFL).</p>
+    </div>
+  </div>
+  <div class="wrap foot__base mono">
+    <span>MIT licence</span>
+    <a href="{{github}}" rel="noopener">GitHub</a>
+    <a href="{{docs}}/" rel="noopener">Documentation</a>
+    <a href="#top">Back to top ↑</a>
+  </div>
+</footer>
+
+<script type="application/json" id="map-data">{{json:map}}</script>
+<script src="/assets/js/app.js" defer></script>
+<script src="/assets/js/map.js" defer></script>
+<script src="/assets/js/swap.js" defer></script>
+</body>
+</html>

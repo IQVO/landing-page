@@ -1,0 +1,15 @@
+{
+  "name": "landing-page",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IQVO landing page: static HTML/CSS/JS served by nginx. No framework, no runtime dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "facts": "node scripts/collect-facts.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs",
+    "serve": "node scripts/serve.mjs"
+  }
+}
