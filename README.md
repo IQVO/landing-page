@@ -70,19 +70,19 @@ make docker-run   # http://localhost:8080
 
 | Setting | Where | Default | Effect |
 |---|---|---|---|
-| `SITE_URL` | env / `--build-arg` | empty | Public origin, no trailing slash. Enables `canonical` and the Open Graph / Twitter tags (they need absolute URLs). |
+| `SITE_URL` | env / `--build-arg` | `https://iqvo.cloud` (`site.config.json`) | Public origin, no trailing slash. Drives `canonical`, the Open Graph / Twitter tags, `sitemap.xml` and the `robots.txt` Sitemap line (all need absolute URLs). Empty in the config means those are omitted. |
 | `DOCS_URL` | env / `--build-arg` | `https://iqvo.github.io/warehouse-docs` | Base of every documentation link. Point it at wherever the docs are served. |
 | `docsUrl`, `githubUrl` | `site.config.json` | as above / `https://github.com/IQVO` | Same, for committed defaults. |
 | `WS_ROOT` | env, `collect-facts` only | parent directory | Where the sibling repositories are checked out. |
 
 ## Deployment (nginx)
 
-The page is deployed to nginx. It is **not** published to GitHub Pages, and the CI workflow only verifies.
+The page is public at **https://iqvo.cloud**, served by nginx. It is **not** published to GitHub Pages; CI verifies and publishes the image only.
 
 Container (fleet-standard: `nginx-unprivileged`, uid 101, port 8080, digest-pinned bases shared with `ecosystem`):
 
 ```bash
-docker build -t iqvo-landing-page --build-arg SITE_URL=https://iqvo.example.com .
+docker build -t iqvo-landing-page --build-arg SITE_URL=https://iqvo.cloud .
 docker run --rm -p 8080:8080 --read-only --tmpfs /tmp --tmpfs /var/cache/nginx --tmpfs /var/run iqvo-landing-page
 ```
 

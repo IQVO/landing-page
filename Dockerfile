@@ -8,7 +8,7 @@
 #   docker run --rm -p 8080:8080 iqvo-landing-page
 
 # --- build stage ---
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
+FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS build
 WORKDIR /app
 ARG SITE_URL=""
 ARG DOCS_URL=""
@@ -20,7 +20,7 @@ COPY src ./src
 RUN node scripts/build.mjs && node scripts/check.mjs
 
 # --- runtime stage ---
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:378d0c32f6562f7fd9629170797f57d2b953aa09be983b3daaf4809bb039ca00
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 # Override the base image's inherited created/revision labels with this build's own.
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
