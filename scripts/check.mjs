@@ -18,12 +18,20 @@ const ghHost = new URL(cfg.githubUrl).host;
 const siteUrl = (process.env.SITE_URL || cfg.siteUrl || '').replace(/\/+$/, '');
 const siteHost = siteUrl ? new URL(siteUrl).host : null;
 
+const eng = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'engineering.json'), 'utf8'));
 const errors = [];
 const fail = (m) => errors.push(m);
 const read = (f) => fs.readFileSync(path.join(DIST, f), 'utf8');
 const exists = (p) => fs.existsSync(path.join(DIST, p));
+// a local URL path -> the file nginx serves for it (`try_files $uri $uri/` + `index index.html`)
+const fileFor = (p) => { const rel = p.replace(/^\//, ''); if (rel === '' || rel.endsWith('/')) return `${rel}index.html`; return fs.existsSync(path.join(DIST, rel)) && fs.statSync(path.join(DIST, rel)).isDirectory() ? `${rel}/index.html` : rel; };
+const idsOf = new Map();
+const idsIn = (f) => { if (!idsOf.has(f)) idsOf.set(f, new Set([...read(f).matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]))); return idsOf.get(f); };
+const walkAll = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkAll(path.join(d, e.name)) : [path.join(d, e.name)]));
+const DISC = "This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.";
+const engPages = walkAll(path.join(DIST, 'engineering')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 
-for (const page of ['index.html', '404.html']) {
+for (const page of ['index.html', '404.html', ...engPages]) {
   if (!exists(page)) { fail(`${page} missing from dist/`); continue; }
   const html = read(page);
 
@@ -45,9 +53,10 @@ for (const page of ['index.html', '404.html']) {
       continue;
     }
     if (/^(mailto:|data:)/.test(v)) continue;
-    const p = v.split('#')[0].split('?')[0];
-    if (p === '/' || p === '') continue;
-    if (!exists(p.replace(/^\//, ''))) fail(`${page}: ${attr}="${v}" does not exist in dist/`);
+    const [p, frag] = v.split('?')[0].split('#');
+    const target = fileFor(p);
+    if (!exists(target)) { fail(`${page}: ${attr}="${v}" does not exist in dist/`); continue; }
+    if (frag && target.endsWith('.html') && !idsIn(target).has(frag)) fail(`${page}: ${attr}="${v}" has no target id in ${target}`);
   }
   if (/<link[^>]+rel="stylesheet"[^>]+href="https?:/.test(html)) fail(`${page}: external stylesheet`);
   if (/\sstyle="/.test(html)) fail(`${page}: inline style attribute (CSP forbids it)`);
@@ -73,13 +82,8 @@ for (const page of ['index.html', '404.html']) {
       if (!read('robots.txt').includes(`Sitemap: ${siteUrl}/sitemap.xml`)) fail('robots.txt has no Sitemap line');
     }
 
-    // ---- the study-project disclaimer must stay loud and verbatim ----
-    const text = html.replace(/<[^>]+>/g, ' ').replace(/&rsquo;/g, "'").replace(/\s+/g, ' ');
-    const DISC = "This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.";
-    if (!text.includes(DISC)) fail('fleet disclaimer missing or reworded in the footer');
-    if (!/<p class="banner"/.test(html)) fail('study-project banner missing');
-    if (!text.includes('Not a product, not production, not affiliated with any company.')) fail('banner sentence missing');
     if (!html.includes('id="not"')) fail('"What IQVO is not" band missing');
+    if (!html.includes('href="/engineering/"')) fail('landing page does not link the engineering study');
 
     // ---- facts must be consistent with what the page says ----
     const c = facts.counts;
@@ -95,6 +99,14 @@ for (const page of ['index.html', '404.html']) {
     if (!html.includes(new Intl.NumberFormat('en-US').format(c.commits))) fail('commit count missing from page');
     const age = (Date.now() - Date.parse(facts.generatedAt)) / 86400000;
     if (age > 45) console.warn(`warn: facts.json is ${age.toFixed(0)} days old; run \`make facts\``);
+  }
+
+  // ---- the study-project disclaimer must stay loud and verbatim on every content page ----
+  if (page !== '404.html') {
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/&rsquo;/g, "'").replace(/\s+/g, ' ');
+    if (!text.includes(DISC)) fail(`${page}: fleet disclaimer missing or reworded in the footer`);
+    if (!/<p class="banner"/.test(html)) fail(`${page}: study-project banner missing`);
+    if (!text.includes('Not a product, not production, not affiliated with any company.')) fail(`${page}: banner sentence missing`);
   }
 
   if (online && page === 'index.html') {
@@ -113,15 +125,50 @@ for (const page of ['index.html', '404.html']) {
   }
 }
 
+// ---- engineering study: complete, and its totals add up ----
+{
+  const repos = Object.values(eng.repos);
+  const want = 2 + eng.weeks.length + repos.length;
+  if (engPages.length !== want) fail(`engineering: ${engPages.length} pages, expected ${want} (overview + weekly index + ${eng.weeks.length} weeks + ${repos.length} projects)`);
+  for (const w of eng.weeks) if (!exists(`engineering/weeks/${w.id}/index.html`)) fail(`engineering: report for ${w.id} missing`);
+  for (const r of repos) {
+    if (!exists(`engineering/projects/${r.name}/index.html`)) { fail(`engineering: study for ${r.name} missing`); continue; }
+    const h1 = read(`engineering/projects/${r.name}/index.html`).match(/<h1>([^<]*)<\/h1>/);
+    if (!h1 || h1[1] !== r.name) fail(`engineering: ${r.name} page has the wrong <h1>`);
+  }
+  if (repos.length !== eng.scope.repos) fail(`engineering: ${repos.length} repos, scope says ${eng.scope.repos}`);
+  const tot = (xs, k) => xs.reduce((s, x) => s + (x?.[k] || 0), 0);
+  for (const k of ['commits', 'prMerged', 'prOpened', 'runs', 'releases']) {
+    const T = eng.total[k];
+    if (tot(repos.map((r) => r.total), k) !== T) fail(`engineering: per-project ${k} do not sum to the fleet total ${T}`);
+    if (tot(Object.values(eng.orgMonths), k) !== T) fail(`engineering: monthly ${k} do not sum to the fleet total ${T}`);
+    if (tot(Object.values(eng.orgWeeks), k) !== T) fail(`engineering: weekly ${k} do not sum to the fleet total ${T}`);
+    for (const r of repos) {
+      if (tot(Object.values(r.months), k) !== r.total[k]) fail(`engineering: ${r.name} monthly ${k} do not sum to its total`);
+      if (tot(Object.values(r.weeks), k) !== r.total[k]) fail(`engineering: ${r.name} weekly ${k} do not sum to its total`);
+    }
+  }
+  for (const w of eng.weeks) if ((eng.weekDetail[w.id]?.merged.length || 0) !== (eng.orgWeeks[w.id]?.prMerged || 0)) fail(`engineering: ${w.id} lists ${eng.weekDetail[w.id]?.merged.length} merged PRs, counts ${eng.orgWeeks[w.id]?.prMerged}`);
+  if (!read('engineering/index.html').includes(new Intl.NumberFormat('en-US').format(eng.total.commits))) fail('engineering: commit total missing from the overview');
+  const age = (Date.now() - Date.parse(eng.generatedAt)) / 86400000;
+  if (age > 8) console.warn(`warn: engineering.json is ${age.toFixed(0)} days old; the latest weekly report is stale (\`make engineering\`)`);
+}
+
 // ---- size budget (bytes, uncompressed) ----
+// The landing page keeps its own budget; the generated engineering study under /engineering/ has a separate one.
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
 const files = walk(DIST);
-const sum = (re) => files.filter((f) => re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
+const engDir = path.join(DIST, 'engineering') + path.sep;
+const sum = (re, pick = (f) => !f.startsWith(engDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
 const budget = [['html', /\.html$/, 90e3], ['css', /\.css$/, 70e3], ['js', /\.js$/, 50e3], ['fonts', /\.woff2$/, 200e3], ['total', /./, 700e3]];
 for (const [name, re, max] of budget) {
   const n = sum(re);
   if (n > max) fail(`budget: ${name} is ${(n / 1024).toFixed(0)} KiB, max ${(max / 1024).toFixed(0)} KiB`);
 }
+const engHtml = sum(/\.html$/, (f) => f.startsWith(engDir));
+const engLargest = Math.max(...files.filter((f) => f.startsWith(engDir)).map((f) => fs.statSync(f).size));
+if (engHtml > 4e6) fail(`budget: engineering html is ${(engHtml / 1024).toFixed(0)} KiB, max 3906 KiB`);
+if (engLargest > 250e3) fail(`budget: largest engineering page is ${(engLargest / 1024).toFixed(0)} KiB, max 244 KiB`);
 // hashed asset referenced by the page must exist (catches a stale dist)
 for (const m of read('index.html').matchAll(/(?:href|src)="(\/assets\/(?:css|js)\/[^"]+)"/g)) if (!exists(m[1].slice(1))) fail(`missing hashed asset ${m[1]}`);
 
@@ -129,4 +176,4 @@ if (errors.length) {
   console.error(`check failed (${errors.length}):\n - ${errors.join('\n - ')}`);
   process.exit(1);
 }
-console.log(`check ok: ${files.length} files, html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
+console.log(`check ok: ${files.length} files (${engPages.length} engineering pages, ${(engHtml / 1024).toFixed(0)} KiB), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
