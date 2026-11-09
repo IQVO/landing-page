@@ -2,13 +2,16 @@
 IMAGE ?= iqvo-landing-page:dev
 PORT  ?= 8080
 
-.PHONY: help facts build check check-online serve docker-build docker-test docker-run clean
+.PHONY: help facts engineering build check check-online serve docker-build docker-test docker-run clean
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  %-14s %s\n", $$1, $$2}'
 
 facts: ## recount every number and the map from the sibling repos (needs ../ checkouts)
 	node scripts/collect-facts.mjs
+
+engineering: ## recount the engineering study (needs fetched ../ checkouts + a GitHub token: GH_TOKEN or `gh auth`)
+	node scripts/collect-engineering.mjs
 
 build: ## render src/ + data/facts.json into dist/ (SITE_URL=https://... for absolute OG urls)
 	node scripts/build.mjs

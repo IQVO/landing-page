@@ -50,6 +50,7 @@
         <li><a href="#harness">Harness</a></li>
         <li><a href="#memory">Memory</a></li>
         <li><a href="#ecosystem">Ecosystem</a></li>
+        <li><a href="/engineering/">Engineering</a></li>
       </ul>
       <div class="nav__cta">
         <a class="btn btn--ghost btn--sm" href="{{github}}" rel="noopener">GitHub<span aria-hidden="true"> ↗</span></a>
@@ -567,11 +568,34 @@
   </div>
 </section>
 
-<!-- ============================ 07 DOCS ============================ -->
+<!-- ============================ 07 ENGINEERING STUDY ============================ -->
+<section class="section section--dark" id="engineering" aria-labelledby="eng-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 07 &middot; Engineering study</p>
+      <h2 id="eng-title">Measured every week, <em>not just shipped.</em></h2>
+      <p class="sec-lede">A software-engineering study of all {{eng.repos}} repositories: quality, pull requests and commits per month for every project, and one report per ISO week with DORA-style delivery proxies, flow, CI health and the risks left open. Counted from git and the GitHub API, like every number on this page.</p>
+    </header>
+    <dl class="engband reveal" aria-label="The engineering study in numbers">
+      <div><dt>projects studied</dt><dd>{{eng.repos}}</dd></div>
+      <div><dt>weekly reports</dt><dd>{{eng.weeks}}</dd></div>
+      <div><dt>pull requests merged</dt><dd>{{eng.prMerged}}</dd></div>
+      <div><dt>CI runs green</dt><dd>{{eng.ci}}</dd></div>
+      <div><dt>median PR lead time</dt><dd>{{eng.lead}}</dd></div>
+    </dl>
+    <div class="cta reveal">
+      <a class="btn btn--mint" href="/engineering/">Open the engineering study</a>
+      <a class="btn btn--line" href="/engineering/weeks/{{eng.latest}}/">Latest weekly report: week {{eng.latestNo}}</a>
+    </div>
+    <p class="caveat reveal"><strong>Proxies, not a benchmark.</strong> One maintainer directs AI agents across every repository, so review counts are near zero by construction and volume says little about effort. The study states each metric's source and blind spot.</p>
+  </div>
+</section>
+
+<!-- ============================ 08 DOCS ============================ -->
 <section class="section section--white" id="docs" aria-labelledby="docs-title">
   <div class="wrap">
     <header class="sec-head reveal">
-      <p class="kicker">§ 07 &middot; Go deeper</p>
+      <p class="kicker">§ 08 &middot; Go deeper</p>
       <h2 id="docs-title">Read the work, <em>not just the pitch.</em></h2>
     </header>
 
@@ -585,6 +609,7 @@
           <li><a href="{{docs}}/network" rel="noopener"><b>Retail network</b><span>The second domain: node, promise and parcel logistics</span></a></li>
           <li><a href="{{docs}}/storefront" rel="noopener"><b>Digital storefront</b><span>Content, pricing, cart, checkout, payments</span></a></li>
           <li><a href="{{docs}}/fleet-health/ecosystem-gaps" rel="noopener"><b>Ecosystem gaps</b><span>What is still wrong, written down</span></a></li>
+          <li><a href="/engineering/"><b>Engineering study</b><span>Quality, PRs and commits per project per month; a report every week</span></a></li>
         </ul>
       </section>
       <section aria-labelledby="l-gh">
@@ -635,6 +660,7 @@
     <span>MIT licence</span>
     <a href="{{github}}" rel="noopener">GitHub</a>
     <a href="{{docs}}/" rel="noopener">Documentation</a>
+    <a href="/engineering/">Engineering study</a>
     <a href="#top">Back to top ↑</a>
   </div>
 </footer>
