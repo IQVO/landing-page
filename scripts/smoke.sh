@@ -33,4 +33,11 @@ curl -s "$BASE/nope" | grep -q "does not exist"                            && ok
 curl -s "$BASE/" | grep -q '<link rel="canonical" href="https://iqvo.cloud/">'  && ok "canonical is iqvo.cloud"    || fail "canonical"
 hdr /sitemap.xml | grep -qi "^content-type: .*xml"                          && ok "sitemap.xml served"         || fail "sitemap"
 curl -s "$BASE/robots.txt" | grep -q "Sitemap: https://iqvo.cloud/sitemap.xml" && ok "robots points at sitemap" || fail "robots"
+# big pages: fetch once, then grep the variable (grep -q on a pipe would SIGPIPE curl under pipefail)
+ENG="$(curl -s "$BASE/engineering/")"; WEEKS="$(curl -s "$BASE/engineering/weeks/")"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/engineering/")" = "200" ]  && ok "engineering study served"     || fail "engineering"
+grep -q "A study project." <<<"$ENG"                                         && ok "engineering keeps the banner" || fail "engineering banner"
+WEEK="$(grep -o '/engineering/weeks/[0-9]\{4\}-W[0-9]\{2\}/' <<<"$WEEKS" | sed -n 1p)"
+[ -n "$WEEK" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE$WEEK")" = "200" ] && ok "weekly report served ($WEEK)" || fail "weekly report"
+curl -s -D- -o /dev/null "$BASE/engineering" | tr -d '\r' | grep -i '^location:' | grep -q ' /engineering/$' && ok "relative slash redirect" || fail "slash redirect"
 echo "smoke passed"
