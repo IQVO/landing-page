@@ -129,7 +129,7 @@
     <ul class="notice__list">
       <li><b>A study project.</b><span>A Domain-Driven Design exercise and an experiment with AI agents. Nobody should build on it as if it were finished software.</span></li>
       <li><b>Not a product.</b><span>Nothing here is for sale, supported or on a roadmap. There are no customers, and no service levels.</span></li>
-      <li><b>Not production.</b><span>It runs on a single-node local cluster with one Kafka broker. REST and MCP are deliberately unauthenticated, so do not expose it to a network you do not control.</span></li>
+      <li><b>Not production.</b><span>It runs on a small two-node k3s cluster with one Kafka broker. REST and MCP are deliberately unauthenticated, so do not expose it to a network you do not control.</span></li>
       <li><b>Not affiliated with any company.</b><span>It is not endorsed by anyone and uses no company&rsquo;s code, data, logos or trademarks. Names, figures and examples are illustrative or synthetic.</span></li>
     </ul>
   </div>
@@ -360,8 +360,8 @@
           <li><strong>It is a study.</strong> Not production, not a product, not a benchmark.</li>
           <li><strong>REST and MCP are unauthenticated</strong> across the fleet, by a deliberate decision for the study. Do not expose it.</li>
           <li><strong>Small samples.</strong> Our harness evaluations are one model and small n. We say so where we publish them.</li>
-          <li><strong>Built is not deployed.</strong> The {{storefront}} storefront contexts are built on <code>develop</code> and not running in the reference cluster.</li>
-          <li><strong>One broker, one node.</strong> The reference deployment is a single-node kind cluster with one Kafka broker.</li>
+          <li><strong>Small hardware.</strong> Two arm64 k3s nodes hold the whole fleet. With one node down, the applications that do not fit stay pending until it returns.</li>
+          <li><strong>One broker, two nodes.</strong> The reference deployment is an existing two-node k3s cluster with one Kafka broker, and no replication.</li>
         </ul>
       </div>
     </div>
@@ -560,7 +560,7 @@
       <li class="strength reveal">
         <h3><span class="strength__n mono">F</span>Kubernetes-native and observable</h3>
         <div>
-          <p>A kind cluster provisioned with Terraform and Helm, Kong at the edge, OpenTelemetry signals and Prometheus alert rules. Honest about scope: it is a single-node reference deployment, and the storefront is built but not deployed.</p>
+          <p>An existing k3s cluster driven by Terraform, with every chart installed by ArgoCD from its service repo and every image built on GitHub, never locally. Kong at the edge, OpenTelemetry signals and Prometheus alert rules. Honest about scope: it is a two-node reference deployment, not production.</p>
           <p class="proof mono"><a href="{{github}}/warehouse-infra" rel="noopener">warehouse-infra</a> · <a href="{{docs}}/fleet-operations/alert-catalogue" rel="noopener">alert catalogue</a></p>
         </div>
       </li>
@@ -620,7 +620,7 @@
           <li><a href="{{github}}/warehouse-harness-template" rel="noopener"><b>warehouse-harness-template</b><span>Guides, sensors, incidents and evals</span></a></li>
           <li><a href="{{github}}/ecosystem" rel="noopener"><b>ecosystem</b><span>The EventCatalog of every event and API</span></a></li>
           <li><a href="{{github}}/warehouse-ops-agent" rel="noopener"><b>warehouse-ops-agent</b><span>The decision-support agent over the MCP surfaces</span></a></li>
-          <li><a href="{{github}}/warehouse-infra" rel="noopener"><b>warehouse-infra</b><span>Terraform, Helm and the kind cluster</span></a></li>
+          <li><a href="{{github}}/warehouse-infra" rel="noopener"><b>warehouse-infra</b><span>Terraform, Helm and ArgoCD on the k3s cluster</span></a></li>
         </ul>
       </section>
     </div>
