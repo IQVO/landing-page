@@ -36,3 +36,16 @@ docker-run: docker-build ## run the image on http://localhost:$(PORT)
 
 clean: ## remove dist/
 	rm -rf dist
+
+# --- agent harness (harness-template v4) -----------------------------------
+.PHONY: check-fast check-all guide-lint harness-test
+check-fast: check ## the agent Stop-hook gate (the full gate takes seconds, so it is the same)
+
+check-all: check ## fleet-standard name for the full gate (= check)
+
+guide-lint: ## lint agent guides: skills load, references resolve, context budget
+	python3 scripts/harness/guide_lint.py
+
+harness-test: ## unit-test the agent hooks (pre/post/stop)
+	python3 scripts/harness/test_hook.py
+	python3 scripts/harness/test_red_issue.py
