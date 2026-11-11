@@ -1,3 +1,76 @@
-See [AGENTS.md](AGENTS.md): it is the single source of project rules for every agent (Claude Code, Codex, OpenCode).
+# Project: landing-page (IQVO public landing page)
 
-Quick start: `make check` before "done"; `make facts` to refresh numbers; deploy target is nginx only.
+harness-template: v4
+
+Static site, served by nginx. Explains IQVO as a Domain-Driven Design study and an open experiment in AI agents, persistent
+memory and harness engineering across different LLMs. Part of the IQVO / warehouse-systems estate but not a bounded context:
+no domain model, no API, no Kafka, no database. Hand-written HTML/CSS/JS in `src/`, rendered with `data/facts.json` into
+`dist/` by stdlib-only Node scripts, shipped as an `nginx-unprivileged` image (`Dockerfile`, port 8080).
+
+> **Study project.** Not production, not a product, not affiliated with any company. The disclaimer text in the footer and in
+> README.md is fleet-standard and verbatim: do not reword it.
+
+## Hard constraints
+
+1. **Deploy target is nginx. Never GitHub Pages, never Docusaurus.** CI verifies only. Do not add a Pages/deploy workflow
+   (`docs/adr/0001-static-html-on-nginx.md`).
+2. **Self-contained.** No third-party request of any kind (no CDN fonts, analytics, embeds). The CSP is
+   `default-src 'none'` + `'self'`: no inline `<script>`, no `style="…"` attribute in markup. Set styles from JS through
+   `element.style` / `setProperty` (allowed), or add a class.
+3. **No hand-typed numbers.** Anything countable is a `{{placeholder}}` filled from `data/facts.json`, which only
+   `scripts/collect-facts.mjs` writes. A new figure means a new field in the collector first (ADR 0002).
+4. **Honest AI claims.** State only what git or the repos can show. Co-author-trailer counts are a floor, never a share. Name models
+   that leave no trailer without a count. Publish null results as null. Do not invent benchmarks, customers, quotes or metrics.
+5. **Fleet facts stay true.** REST and MCP are unauthenticated fleet-wide by decision (say so; never describe auth as current).
+   Storefront contexts are "built on develop, not deployed", never "running". One Kafka broker; the reference deployment is the
+   k3s cluster `warehouse-infra` targets (its ADR 0011; kind is retired).
+6. **Logo and palette.** The logo is the IQVO avatar from github.com/IQVO (navy hexagon, mint blocks, dark-navy wordmark). Use
+   `iqvo-logo.png` on light surfaces only; do not recolour or redraw it. The old orange "A" logo in `ecosystem/public` is not IQVO's.
+   Palette tokens live at the top of `main.css`; amber is the single non-logo signal colour.
+7. **Docs links** go through `{{docs}}` (from `site.config.json` / `DOCS_URL`), per-context pages follow
+   `contexts/<id>` (WMS/WES), `network/contexts/<id>`, `storefront/contexts/<id>`. Verify with `node scripts/check.mjs --online`.
+8. **Accessibility is a gate, not a polish step:** AA contrast, visible focus, 44 px touch targets on coarse pointers, reduced
+   motion honoured, content readable without JS, keyboard-operable map and tabs.
+9. **Assets are served by nginx, never through Kong.** Real files only (404, never an SPA fallback), GET/HEAD only, hashed CSS/JS
+   immutable, every header-setting location re-includes the security headers. Detail: `.claude/rules/nginx-static-assets.md`.
+
+## Commands
+
+- `make check`: build + gate (`scripts/check.mjs`: links, ids, a11y basics, CSP, size budget, facts consistency, disclaimer).
+  Run before saying "done". `make check-fast` and `make check-all` are the same gate (it takes seconds).
+- `make facts`: recount every number and the map from the sibling repos (reads `origin/develop` via `git show`). Then `make check`.
+- `make engineering`: recount the engineering study (needs fetched sibling checkouts and a GitHub token).
+- `make serve`: preview on http://localhost:4173.
+- `make docker-test`: build the nginx image and smoke-test it (read-only rootfs, non-root, headers, caching, 404/405, health).
+- `make check-online`: the gate plus a HEAD on every external link.
+- `make guide-lint`: these agent guides. `make harness-test`: the agent hook tests.
+- `lefthook.yml`: pre-commit `node --check`, hadolint, actionlint; pre-push `make check`.
+
+## Layout
+
+See README.md "Architecture". Template: `src/index.html`; tokens + all CSS: `src/assets/css/main.css`; behaviour:
+`src/assets/js/{app,map,swap}.js`. Server: `deploy/nginx.conf` (container), `deploy/nginx-host.example.conf` (host install),
+`deploy/security-headers.conf`.
+
+## When editing copy
+
+Each section has a source of truth (README "Documentation" table). If you paraphrase an incident or an eval result, keep the
+date and the guard test name so a reader can verify it, and keep the caveats ("one repo, one model, small n").
+
+## Where things are written down
+
+- `docs/adr/`: 0001 static HTML on nginx, 0002 numbers come from the repositories, 0003 engineering study pages.
+- `.claude/rules/nginx-static-assets.md` (scoped to `deploy/**`, `Dockerfile`, the asset build and smoke test).
+- `HARNESS.md`: every sensor and hook this repo runs, and when. `INCIDENTS.md`: the fleet incident log.
+
+<!-- harness:scoped-rules:start (generated by tools/migrate_v3.py in warehouse-harness-template; do not hand-edit) -->
+## Scoped rules and harness
+
+Claude Code loads each rule below automatically when you touch the matching paths. OpenCode and Codex do NOT: read the rule BEFORE editing matching files.
+
+| When touching | Read |
+|---|---|
+| `deploy/**`, `Dockerfile`, `scripts/build.mjs` ... | `.claude/rules/nginx-static-assets.md` |
+
+Hooks (`scripts/harness/hook.py`, wired for Claude Code, Codex and OpenCode) block pushes to develop/main, `--no-verify`, bare `rm -rf`, and edits to generated files, and feed gofmt/vet findings back after each edit. Before saying "done" run `make check-fast`; the full gate is `make check-all`. `HARNESS_OFF=1` disables the hooks when debugging the harness itself.
+<!-- harness:scoped-rules:end -->
