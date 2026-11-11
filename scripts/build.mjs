@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { engineeringView, renderEngineering } from './engineering.mjs';
+import { architectureView, renderArchitecture } from './architecture.mjs';
 
 const ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'src');
@@ -22,6 +23,7 @@ cfg.siteUrl = (cfg.siteUrl || '').replace(/\/+$/, '');
 cfg.docsUrl = cfg.docsUrl.replace(/\/+$/, '');
 const facts = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'facts.json'), 'utf8'));
 const engineering = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'engineering.json'), 'utf8'));
+const architecture = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'architecture.json'), 'utf8'));
 
 // ---------- view model: friendly keys over facts.json ----------
 const fmt = (n) => new Intl.NumberFormat('en-US').format(n);
@@ -60,6 +62,7 @@ const view = {
   },
   trRaw: trailerTotal,
   eng: engineeringView(engineering),
+  arch: architectureView(architecture),
 };
 
 // map payload: only what the browser needs
@@ -135,16 +138,26 @@ for (const pg of engPages) {
   fs.writeFileSync(path.join(DIST, pg.file), html);
 }
 
+// architecture assessment: one overview, one page per project (scripts/architecture.mjs)
+const archPages = renderArchitecture({ data: architecture, cfg, updatedLabel: dt(architecture.generatedAt) });
+for (const pg of archPages) {
+  let html = pg.html;
+  for (const [from, to] of hashed) html = html.split(`"${from}"`).join(`"${to}"`);
+  fs.mkdirSync(path.dirname(path.join(DIST, pg.file)), { recursive: true });
+  fs.writeFileSync(path.join(DIST, pg.file), html);
+}
+
 // crawlers: sitemap + robots pointer only when the public origin is known (absolute URLs are required)
 if (cfg.siteUrl) {
   const today = new Date().toISOString().slice(0, 10);
   fs.writeFileSync(path.join(DIST, 'sitemap.xml'),
     `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${cfg.siteUrl}/</loc><lastmod>${today}</lastmod></url>\n` +
     engPages.map((pg) => `  <url><loc>${cfg.siteUrl}/${pg.file.replace(/index\.html$/, '')}</loc><lastmod>${today}</lastmod></url>\n`).join('') +
+    archPages.map((pg) => `  <url><loc>${cfg.siteUrl}/${pg.file.replace(/index\.html$/, '')}</loc><lastmod>${today}</lastmod></url>\n`).join('') +
     '</urlset>\n');
   fs.appendFileSync(path.join(DIST, 'robots.txt'), `Sitemap: ${cfg.siteUrl}/sitemap.xml\n`);
 }
 
 const size = (p) => fs.statSync(p).size;
 const total = (function walk(d) { return fs.readdirSync(d, { withFileTypes: true }).reduce((s, e) => s + (e.isDirectory() ? walk(path.join(d, e.name)) : size(path.join(d, e.name))), 0); })(DIST);
-console.log(`built dist/ (${(total / 1024).toFixed(0)} KiB, ${hashed.size} hashed assets, ${engPages.length} engineering pages) site=${cfg.siteUrl || '(relative)'} docs=${cfg.docsUrl}`);
+console.log(`built dist/ (${(total / 1024).toFixed(0)} KiB, ${hashed.size} hashed assets, ${engPages.length} engineering pages, ${archPages.length} architecture pages) site=${cfg.siteUrl || '(relative)'} docs=${cfg.docsUrl}`);

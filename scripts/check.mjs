@@ -19,6 +19,7 @@ const siteUrl = (process.env.SITE_URL || cfg.siteUrl || '').replace(/\/+$/, '');
 const siteHost = siteUrl ? new URL(siteUrl).host : null;
 
 const eng = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'engineering.json'), 'utf8'));
+const arch = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'architecture.json'), 'utf8'));
 const errors = [];
 const fail = (m) => errors.push(m);
 const read = (f) => fs.readFileSync(path.join(DIST, f), 'utf8');
@@ -30,8 +31,9 @@ const idsIn = (f) => { if (!idsOf.has(f)) idsOf.set(f, new Set([...read(f).match
 const walkAll = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walkAll(path.join(d, e.name)) : [path.join(d, e.name)]));
 const DISC = "This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.";
 const engPages = walkAll(path.join(DIST, 'engineering')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
+const archPages = walkAll(path.join(DIST, 'architecture')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 
-for (const page of ['index.html', '404.html', ...engPages]) {
+for (const page of ['index.html', '404.html', ...engPages, ...archPages]) {
   if (!exists(page)) { fail(`${page} missing from dist/`); continue; }
   const html = read(page);
 
@@ -84,6 +86,7 @@ for (const page of ['index.html', '404.html', ...engPages]) {
 
     if (!html.includes('id="not"')) fail('"What IQVO is not" band missing');
     if (!html.includes('href="/engineering/"')) fail('landing page does not link the engineering study');
+    if (!html.includes('href="/architecture/"')) fail('landing page does not link the architecture assessment');
 
     // ---- facts must be consistent with what the page says ----
     const c = facts.counts;
@@ -154,12 +157,56 @@ for (const page of ['index.html', '404.html', ...engPages]) {
   if (age > 8) console.warn(`warn: engineering.json is ${age.toFixed(0)} days old; the latest weekly report is stale (\`make engineering\`)`);
 }
 
+// ---- architecture assessment: complete, self-consistent, and consistent with the engineering data ----
+{
+  const repos = Object.values(arch.repos);
+  const want = 1 + Object.keys(arch.repos).length;
+  if (archPages.length !== want) fail(`architecture: ${archPages.length} pages, expected ${want} (overview + ${Object.keys(arch.repos).length} projects)`);
+  const order = arch.method.order;
+  for (const [name, r] of Object.entries(arch.repos)) {
+    if (!exists(`architecture/projects/${name}/index.html`)) { fail(`architecture: assessment for ${name} missing`); continue; }
+    const h1 = read(`architecture/projects/${name}/index.html`).match(/<h1>([^<]*)<\/h1>/);
+    if (!h1 || h1[1] !== name) fail(`architecture: ${name} page has the wrong <h1>`);
+    for (const k of order) {
+      const ff = r.ff[k];
+      if (ff == null) { fail(`architecture: ${name} is missing fitness function ${k}`); continue; }
+      if (!ff.applicable && ff.pass !== null) fail(`architecture: ${name}.${k} is n/a but has a verdict`);
+      if (ff.applicable && typeof ff.pass !== 'boolean') fail(`architecture: ${name}.${k} is applicable but has no pass/fail`);
+    }
+    const applicable = order.filter((k) => r.ff[k].applicable).length;
+    const passed = order.filter((k) => r.ff[k].applicable && r.ff[k].pass).length;
+    if (applicable !== r.applicable || passed !== r.passed || r.failed !== applicable - passed) fail(`architecture: ${name} pass/fail counts do not add up`);
+    if (r.fitness !== Math.round((100 * passed) / applicable)) fail(`architecture: ${name} fitness share is wrong`);
+    // cross-pipeline: shared numbers must agree with the engineering study of the same day
+    const e = eng.repos[name];
+    if (!e) fail(`architecture: ${name} is not in engineering.json`);
+    else {
+      if (r.ff.ci.applicable && r.ff.ci.value !== e.score?.ci) fail(`architecture: ${name} CI value disagrees with engineering.json`);
+      if (r.ff.tests.applicable && r.ff.tests.detail.code !== e.loc?.code) fail(`architecture: ${name} code LOC disagrees with engineering.json`);
+    }
+  }
+  for (const k of order) {
+    const b = arch.fleet.byFF[k];
+    let applicable = 0, pass = 0;
+    for (const r of repos) { if (!r.ff[k].applicable) continue; applicable++; if (r.ff[k].pass) pass++; }
+    if (applicable !== b.applicable || pass !== b.pass || b.fail !== applicable - pass) fail(`architecture: fleet roll-up for ${k} does not add up`);
+  }
+  if (arch.fleet.evaluated !== order.reduce((s, k) => s + arch.fleet.byFF[k].applicable, 0)) fail('architecture: fleet evaluated total is wrong');
+  if (arch.fleet.passed !== order.reduce((s, k) => s + arch.fleet.byFF[k].pass, 0)) fail('architecture: fleet passed total is wrong');
+  const ov = read('architecture/index.html');
+  if (!ov.includes(new Intl.NumberFormat('en-US').format(arch.fleet.evaluated))) fail('architecture: evaluated total missing from the overview');
+  if (!ov.includes('id="ff-layout"') || !ov.includes('id="ff-ci"')) fail('architecture: fitness-function anchors missing from the overview');
+  const age = (Date.now() - Date.parse(arch.generatedAt)) / 86400000;
+  if (age > 8) console.warn(`warn: architecture.json is ${age.toFixed(0)} days old (\`make architecture\`)`);
+}
+
 // ---- size budget (bytes, uncompressed) ----
 // The landing page keeps its own budget; the generated engineering study under /engineering/ has a separate one.
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
 const files = walk(DIST);
 const engDir = path.join(DIST, 'engineering') + path.sep;
-const sum = (re, pick = (f) => !f.startsWith(engDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
+const archDir = path.join(DIST, 'architecture') + path.sep;
+const sum = (re, pick = (f) => !f.startsWith(engDir) && !f.startsWith(archDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
 const budget = [['html', /\.html$/, 90e3], ['css', /\.css$/, 70e3], ['js', /\.js$/, 50e3], ['fonts', /\.woff2$/, 200e3], ['total', /./, 700e3]];
 for (const [name, re, max] of budget) {
   const n = sum(re);
@@ -169,6 +216,10 @@ const engHtml = sum(/\.html$/, (f) => f.startsWith(engDir));
 const engLargest = Math.max(...files.filter((f) => f.startsWith(engDir)).map((f) => fs.statSync(f).size));
 if (engHtml > 4e6) fail(`budget: engineering html is ${(engHtml / 1024).toFixed(0)} KiB, max 3906 KiB`);
 if (engLargest > 250e3) fail(`budget: largest engineering page is ${(engLargest / 1024).toFixed(0)} KiB, max 244 KiB`);
+const archHtml = sum(/\.html$/, (f) => f.startsWith(archDir));
+const archLargest = Math.max(...files.filter((f) => f.startsWith(archDir)).map((f) => fs.statSync(f).size));
+if (archHtml > 2e6) fail(`budget: architecture html is ${(archHtml / 1024).toFixed(0)} KiB, max 1953 KiB`);
+if (archLargest > 120e3) fail(`budget: largest architecture page is ${(archLargest / 1024).toFixed(0)} KiB, max 117 KiB`);
 // hashed asset referenced by the page must exist (catches a stale dist)
 for (const m of read('index.html').matchAll(/(?:href|src)="(\/assets\/(?:css|js)\/[^"]+)"/g)) if (!exists(m[1].slice(1))) fail(`missing hashed asset ${m[1]}`);
 
@@ -176,4 +227,4 @@ if (errors.length) {
   console.error(`check failed (${errors.length}):\n - ${errors.join('\n - ')}`);
   process.exit(1);
 }
-console.log(`check ok: ${files.length} files (${engPages.length} engineering pages, ${(engHtml / 1024).toFixed(0)} KiB), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
+console.log(`check ok: ${files.length} files (${engPages.length} engineering pages, ${archPages.length} architecture pages, ${(engHtml / 1024).toFixed(0)} + ${(archHtml / 1024).toFixed(0)} KiB), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);

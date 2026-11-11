@@ -591,11 +591,34 @@
   </div>
 </section>
 
-<!-- ============================ 08 DOCS ============================ -->
+<!-- ============================ 08 ARCHITECTURE ASSESSMENT ============================ -->
+<section class="section section--white" id="architecture" aria-labelledby="arch-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 08 &middot; Architecture assessment</p>
+      <h2 id="arch-title">Fitness functions, <em>not opinions.</em></h2>
+      <p class="sec-lede">Every repository assessed with ten architectural fitness functions — the term from <i>Building Evolutionary Architectures</i> (Ford, Parsons &amp; Kua; foreword by Martin Fowler): objective integrity checks on structure, coupling, contracts, governance and delivery, each with a stated target. Counted from the git trees at HEAD of every default branch; a missed target is a listed risk, never a judgement.</p>
+    </header>
+    <dl class="engband engband--light reveal" aria-label="The architecture assessment in numbers">
+      <div><dt>projects assessed</dt><dd>{{arch.repos}}</dd></div>
+      <div><dt>checks evaluated</dt><dd>{{arch.checks}}</dd></div>
+      <div><dt>checks passing</dt><dd>{{arch.pass}}</dd></div>
+      <div><dt>in-repo fitness tests</dt><dd>{{arch.tests}}</dd></div>
+      <div><dt>risk lines</dt><dd>{{arch.risks}}</dd></div>
+    </dl>
+    <div class="cta reveal">
+      <a class="btn btn--solid" href="/architecture/">Open the architecture assessment</a>
+      <a class="btn btn--ghost" href="/architecture/#functions">The ten fitness functions</a>
+    </div>
+    <p class="caveat reveal"><strong>Static shape, honestly.</strong> Nine of the ten checks read structure at HEAD; only CI green is dynamic. ATAM&rsquo;s tradeoff analysis needs people in a room — this is one repository-reading script, and the method says so.</p>
+  </div>
+</section>
+
+<!-- ============================ 09 DOCS ============================ -->
 <section class="section section--white" id="docs" aria-labelledby="docs-title">
   <div class="wrap">
     <header class="sec-head reveal">
-      <p class="kicker">§ 08 &middot; Go deeper</p>
+      <p class="kicker">§ 09 &middot; Go deeper</p>
       <h2 id="docs-title">Read the work, <em>not just the pitch.</em></h2>
     </header>
 
@@ -610,6 +633,7 @@
           <li><a href="{{docs}}/storefront" rel="noopener"><b>Digital storefront</b><span>Content, pricing, cart, checkout, payments</span></a></li>
           <li><a href="{{docs}}/fleet-health/ecosystem-gaps" rel="noopener"><b>Ecosystem gaps</b><span>What is still wrong, written down</span></a></li>
           <li><a href="/engineering/"><b>Engineering study</b><span>Quality, PRs and commits per project per month; a report every week</span></a></li>
+          <li><a href="/architecture/"><b>Architecture assessment</b><span>Ten fitness functions per project: structure, coupling, contracts, governance</span></a></li>
         </ul>
       </section>
       <section aria-labelledby="l-gh">
@@ -661,6 +685,7 @@
     <a href="{{github}}" rel="noopener">GitHub</a>
     <a href="{{docs}}/" rel="noopener">Documentation</a>
     <a href="/engineering/">Engineering study</a>
+    <a href="/architecture/">Architecture assessment</a>
     <a href="#top">Back to top ↑</a>
   </div>
 </footer>

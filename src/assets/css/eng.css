@@ -195,3 +195,26 @@ b.r-warn, b.r-bad, p.r-warn, p.r-bad { color: var(--amber-deep); }
   .enav__links a { white-space: nowrap; }
   html:has(body.eng) { scroll-padding-top: 160px; }
 }
+
+@media (max-width: 700px) {
+  /* wide matrices must reflow on phones instead of stretching the document (14 nowrap columns) */
+  body.arch .t th, body.arch .t td { white-space: normal; overflow-wrap: anywhere; }
+  body.arch .t thead th { position: static; }
+  /* the 14-column matrix: shrink cells and drop the two redundant trailing columns
+     (fitness badge + study link both live on the project's own page) */
+  body.arch .t--matrix td.ffc { padding: 0.3rem 0.15rem; font-size: 1rem; }
+  body.arch .t--matrix thead th:not(:first-child) { padding: 0.3rem 0.2rem; font-size: 0.62rem; }
+  body.arch .t--matrix td:last-child, body.arch .t--matrix th:last-child,
+  body.arch .t--matrix td:nth-last-child(2), body.arch .t--matrix th:nth-last-child(2) { display: none; }
+}
+
+/* Architecture assessment pages (/architecture/…). Same tokens; only the pass/fail cells and pills are new. */
+.ffc { text-align: center; font-weight: 700; }
+.ffc--pass { color: var(--mint, #17b890); }
+.ffc--fail { color: #c4320f; }
+.ffc--na { color: color-mix(in srgb, var(--navy) 35%, #fff); font-weight: 400; }
+.ffpill { display: inline-block; border-radius: 999px; padding: 0.1rem 0.6rem; font: 680 0.72rem/1.5 var(--mono, monospace); letter-spacing: 0.02em; }
+.ffpill--pass { background: color-mix(in srgb, #17b890 14%, #fff); color: #0d6e56; }
+.ffpill--fail { background: color-mix(in srgb, #c4320f 12%, #fff); color: #c4320f; }
+.ffpill--na { background: color-mix(in srgb, var(--navy, #0b1d2d) 7%, #fff); color: color-mix(in srgb, var(--navy, #0b1d2d) 60%, #fff); }
+.t--matrix .ffc { font-size: 0.9rem; }
