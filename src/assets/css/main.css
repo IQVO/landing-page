@@ -218,6 +218,12 @@ h1 em { color: var(--deep); font-size: 1.12em; letter-spacing: -0.02em; }
 .engband dd { order: 1; font: 650 clamp(1.5rem, 1.1rem + 1.3vw, 2.15rem)/1.1 var(--f-mono); letter-spacing: -0.03em; color: var(--mint); }
 @media (max-width: 860px) { .engband { grid-template-columns: repeat(2, minmax(0, 1fr)); } .engband > div:nth-child(odd) { padding-left: 0; border-left: 0; } .engband > div { border-top: 1px solid var(--line-dark); } }
 
+/* light variant: the same band inside a white section (§ 08 architecture assessment) */
+.engband--light { border-top-color: var(--line-strong); }
+.engband--light > div + div { border-left-color: var(--line); }
+.engband--light dt { color: var(--muted); }
+.engband--light dd { color: var(--navy); }
+
 /* telemetry strip */
 .telemetry { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: clamp(2.5rem, 5vw, 4rem); border-top: 1px solid var(--line-strong); }
 .telemetry > div { padding: 1rem 1rem 0.9rem 0; }
