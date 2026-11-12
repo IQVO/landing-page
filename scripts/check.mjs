@@ -20,6 +20,7 @@ const siteHost = siteUrl ? new URL(siteUrl).host : null;
 
 const eng = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'engineering.json'), 'utf8'));
 const arch = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'architecture.json'), 'utf8'));
+const brief = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'briefings.json'), 'utf8'));
 const errors = [];
 const fail = (m) => errors.push(m);
 const read = (f) => fs.readFileSync(path.join(DIST, f), 'utf8');
@@ -32,8 +33,9 @@ const walkAll = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
 const DISC = "This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.";
 const engPages = walkAll(path.join(DIST, 'engineering')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 const archPages = walkAll(path.join(DIST, 'architecture')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
+const briefPages = walkAll(path.join(DIST, 'briefings')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 
-for (const page of ['index.html', '404.html', ...engPages, ...archPages]) {
+for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...briefPages]) {
   if (!exists(page)) { fail(`${page} missing from dist/`); continue; }
   const html = read(page);
 
@@ -87,6 +89,7 @@ for (const page of ['index.html', '404.html', ...engPages, ...archPages]) {
     if (!html.includes('id="not"')) fail('"What IQVO is not" band missing');
     if (!html.includes('href="/engineering/"')) fail('landing page does not link the engineering study');
     if (!html.includes('href="/architecture/"')) fail('landing page does not link the architecture assessment');
+    if (!html.includes('href="/briefings/"')) fail('landing page does not link the executive briefings');
 
     // ---- facts must be consistent with what the page says ----
     const c = facts.counts;
@@ -200,13 +203,41 @@ for (const page of ['index.html', '404.html', ...engPages, ...archPages]) {
   if (age > 8) console.warn(`warn: architecture.json is ${age.toFixed(0)} days old (\`make architecture\`)`);
 }
 
+// ---- executive briefings: every program page exists, deck quotes and counts agree ----
+{
+  const progs = Object.keys(brief.programs);
+  if (briefPages.length !== 1 + progs.length) fail(`briefings: ${briefPages.length} pages, expected ${1 + progs.length} (hub + ${progs.length} programs)`);
+  const allMembers = new Set(progs.flatMap((k) => brief.members[k]));
+  for (const k of progs) {
+    if (!exists(`briefings/${k}/index.html`)) fail(`briefings: page for ${k} missing`);
+    const html = read(`briefings/${k}/index.html`);
+    const members = brief.members[k];
+    for (const id of members) {
+      const deck = brief.decks[id];
+      if (deck && !html.includes(`id="p-${id}"`)) fail(`briefings: ${k} page does not present the ${id} deck`);
+    }
+  }
+  // every deck quoted on the pages belongs to a program or the platform strip
+  for (const d of Object.values(brief.decks)) {
+    if (!allMembers.has(d.repo) && !read('briefings/index.html').includes(d.repo)) fail(`briefings: deck ${d.repo} appears in neither a program nor the platform strip`);
+  }
+  if (brief.fleet.decks !== Object.keys(brief.decks).length) fail('briefings: fleet deck count disagrees with the deck list');
+  const briefedInPrograms = progs.flatMap((k) => brief.members[k]).filter((id) => brief.decks[id]).length;
+  const platformDecks = Object.keys(brief.decks).length - briefedInPrograms;
+  if (!read('briefings/index.html').includes(new Intl.NumberFormat('en-US').format(brief.fleet.decks))) fail('briefings: deck total missing from the hub');
+  if (platformDecks < 0) fail('briefings: more program decks than decks');
+  const age = (Date.now() - Date.parse(brief.generatedAt)) / 86400000;
+  if (age > 8) console.warn(`warn: briefings.json is ${age.toFixed(0)} days old (\`make briefings\`)`);
+}
+
 // ---- size budget (bytes, uncompressed) ----
 // The landing page keeps its own budget; the generated engineering study under /engineering/ has a separate one.
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
 const files = walk(DIST);
 const engDir = path.join(DIST, 'engineering') + path.sep;
 const archDir = path.join(DIST, 'architecture') + path.sep;
-const sum = (re, pick = (f) => !f.startsWith(engDir) && !f.startsWith(archDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
+const briefDir = path.join(DIST, 'briefings') + path.sep;
+const sum = (re, pick = (f) => !f.startsWith(engDir) && !f.startsWith(archDir) && !f.startsWith(briefDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
 const budget = [['html', /\.html$/, 90e3], ['css', /\.css$/, 70e3], ['js', /\.js$/, 50e3], ['fonts', /\.woff2$/, 200e3], ['total', /./, 700e3]];
 for (const [name, re, max] of budget) {
   const n = sum(re);
@@ -220,6 +251,10 @@ const archHtml = sum(/\.html$/, (f) => f.startsWith(archDir));
 const archLargest = Math.max(...files.filter((f) => f.startsWith(archDir)).map((f) => fs.statSync(f).size));
 if (archHtml > 2e6) fail(`budget: architecture html is ${(archHtml / 1024).toFixed(0)} KiB, max 1953 KiB`);
 if (archLargest > 120e3) fail(`budget: largest architecture page is ${(archLargest / 1024).toFixed(0)} KiB, max 117 KiB`);
+const briefHtml = sum(/\.html$/, (f) => f.startsWith(briefDir));
+const briefLargest = Math.max(...files.filter((f) => f.startsWith(briefDir)).map((f) => fs.statSync(f).size));
+if (briefHtml > 1.5e6) fail(`budget: briefings html is ${(briefHtml / 1024).toFixed(0)} KiB, max 1464 KiB`);
+if (briefLargest > 220e3) fail(`budget: largest briefings page is ${(briefLargest / 1024).toFixed(0)} KiB, max 214 KiB`);
 // hashed asset referenced by the page must exist (catches a stale dist)
 for (const m of read('index.html').matchAll(/(?:href|src)="(\/assets\/(?:css|js)\/[^"]+)"/g)) if (!exists(m[1].slice(1))) fail(`missing hashed asset ${m[1]}`);
 
@@ -227,4 +262,4 @@ if (errors.length) {
   console.error(`check failed (${errors.length}):\n - ${errors.join('\n - ')}`);
   process.exit(1);
 }
-console.log(`check ok: ${files.length} files (${engPages.length} engineering pages, ${archPages.length} architecture pages, ${(engHtml / 1024).toFixed(0)} + ${(archHtml / 1024).toFixed(0)} KiB), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
+console.log(`check ok: ${files.length} files (${engPages.length} engineering, ${archPages.length} architecture, ${briefPages.length} briefing pages), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
