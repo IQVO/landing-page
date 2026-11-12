@@ -25,7 +25,8 @@ This README and the two ADRs are the whole documentation. The page itself is the
 | 06 Ecosystem | Six properties that make the system agent-friendly | hand-written + `data/facts.json` |
 | 07 Engineering | The engineering study in five numbers, links to it | `data/engineering.json` |
 | 08 Architecture | The architecture assessment in five numbers, links to it | `data/architecture.json` |
-| 09 Docs | Links to the documentation and the GitHub organisation | `site.config.json` |
+| 09 Briefings | The executive briefings in five numbers, links to them | `data/briefings.json` |
+| 10 Docs | Links to the documentation and the GitHub organisation | `site.config.json` |
 
 The **engineering study** (`/engineering/`, [ADR 0003](docs/adr/0003-engineering-study-pages.md)) is generated, not written:
 
@@ -36,6 +37,8 @@ The **engineering study** (`/engineering/`, [ADR 0003](docs/adr/0003-engineering
 | `/engineering/projects/<repo>/` | One study per repository: score and its seven signals, lifetime KPIs, per-month table and chart, weekly commits/PRs/CI, tracked lines by class, churn, harness checklist, busiest workflows, recent PRs and releases |
 
 The **architecture assessment** (`/architecture/`, [ADR 0004](docs/adr/0004-architecture-assessment-pages.md)) is generated the same way. It scores every repository against ten architectural fitness functions (Ford / Parsons / Kua; utility-tree shape after the SEI's ATAM): ports-and-adapters layout, domain purity, adapter symmetry, contract-first APIs, event-naming grammar, in-repo architecture tests, decision records, MCP isolation, test investment and CI green. `/architecture/` is the fleet matrix and method; `/architecture/projects/<repo>/` shows each project's checks, measured values, evidence and computed risk lines. `make architecture` recounts it from the sibling clones plus the same day's `engineering.json`; n/a checks are published as n/a.
+
+The **executive briefings** (`/briefings/`, [ADR 0005](docs/adr/0005-executive-briefing-pages.md)) quote the reveal.js decks committed in each repository (`executive/index.html`) and present them per program — WMS/WES, retail network, yard management and storefront — on landing-template pages. Each program page draws its event-flow diagram from the context registry's real routes and each briefed project draws its hexagon from the counted adapters; contexts without a deck are listed as "not yet briefed". `make briefings` recounts from the sibling clones plus the day's `engineering.json`/`architecture.json`.
 
 ## Architecture
 
@@ -59,6 +62,8 @@ scripts/
   collect-architecture.mjs  fitness-function results per repo: layout, domain purity, adapters, contracts, events, arch tests, ADRs, MCP, tests, CI
   engineering.mjs       renders the engineering study (overview, weekly reports, project studies) as static HTML + SVG
   architecture.mjs      renders the architecture assessment (overview + one page per project)
+  collect-briefings.mjs  parses the committed executive decks (speaker notes) and joins the day's counts
+  briefings.mjs          renders the briefings hub + one landing page per program
   build.mjs             src/ -> dist/, content-hashes css/js, inlines the map data, renders /engineering/ and /architecture/
   check.mjs             the gate: links, ids, a11y basics, CSP, size budget, facts consistency
   serve.mjs             dev preview only

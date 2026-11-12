@@ -614,11 +614,34 @@
   </div>
 </section>
 
-<!-- ============================ 09 DOCS ============================ -->
+<!-- ============================ 09 EXECUTIVE BRIEFINGS ============================ -->
+<section class="section section--dark" id="briefings" aria-labelledby="brief-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 09 &middot; Executive briefings</p>
+      <h2 id="brief-title">Every project, briefed like <em>a business.</em></h2>
+      <p class="sec-lede">Each repository ships an executive briefing — mission, capabilities, events, risks, next steps. Four program landing pages quote them, join them to the counted engineering and architecture data, and draw each program&rsquo;s real event flow: every arrow is a counted Kafka route.</p>
+    </header>
+    <dl class="engband reveal" aria-label="The briefings in numbers">
+      <div><dt>briefing decks</dt><dd>{{brief.decks}}</dd></div>
+      <div><dt>programs</dt><dd>{{brief.programs}}</dd></div>
+      <div><dt>bounded contexts</dt><dd>{{brief.contexts}}</dd></div>
+      <div><dt>event routes</dt><dd>{{brief.events}}</dd></div>
+      <div><dt>split</dt><dd class="engband__txt">WMS/WES · Retail · Yard · Storefront</dd></div>
+    </dl>
+    <div class="cta reveal">
+      <a class="btn btn--mint" href="/briefings/">Open the briefings hub</a>
+      <a class="btn btn--line" href="/briefings/wms-wes/">Start with the warehouse</a>
+    </div>
+    <p class="caveat reveal"><strong>Committed artifacts.</strong> The decks live in each repository; these pages quote them verbatim and count the rest from git. Where a context has no deck yet, the page says so — a gap, published as a gap.</p>
+  </div>
+</section>
+
+<!-- ============================ 10 DOCS ============================ -->
 <section class="section section--white" id="docs" aria-labelledby="docs-title">
   <div class="wrap">
     <header class="sec-head reveal">
-      <p class="kicker">§ 09 &middot; Go deeper</p>
+      <p class="kicker">§ 10 &middot; Go deeper</p>
       <h2 id="docs-title">Read the work, <em>not just the pitch.</em></h2>
     </header>
 
@@ -634,6 +657,7 @@
           <li><a href="{{docs}}/fleet-health/ecosystem-gaps" rel="noopener"><b>Ecosystem gaps</b><span>What is still wrong, written down</span></a></li>
           <li><a href="/engineering/"><b>Engineering study</b><span>Quality, PRs and commits per project per month; a report every week</span></a></li>
           <li><a href="/architecture/"><b>Architecture assessment</b><span>Ten fitness functions per project: structure, coupling, contracts, governance</span></a></li>
+          <li><a href="/briefings/"><b>Executive briefings</b><span>Four program landing pages over the committed decks: WMS/WES, retail, yard, storefront</span></a></li>
         </ul>
       </section>
       <section aria-labelledby="l-gh">
@@ -686,6 +710,7 @@
     <a href="{{docs}}/" rel="noopener">Documentation</a>
     <a href="/engineering/">Engineering study</a>
     <a href="/architecture/">Architecture assessment</a>
+    <a href="/briefings/">Executive briefings</a>
     <a href="#top">Back to top ↑</a>
   </div>
 </footer>
