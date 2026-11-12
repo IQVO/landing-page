@@ -19,7 +19,7 @@ const n = (x) => (x == null ? '—' : nf.format(x));
 const sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
 const median = (arr) => { const s = arr.filter((x) => x != null).sort((a, b) => a - b); if (!s.length) return null; const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 const dLong = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-const clip = (s, k) => (String(s ?? '').length > k ? `${String(s).replace(/<\/?[a-z]+>/g, '').slice(0, k).trimEnd()}…` : String(s ?? ''));
+const clip = (s, k) => (String(s ?? '').length > k ? `${String(s ?? '').slice(0, k).trimEnd()}…` : String(s ?? ''));
 
 // ---------------------------------------------------------------- program copy (hand-written, figures counted)
 const PROG = {

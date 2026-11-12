@@ -20,9 +20,23 @@ const ARCH = path.resolve(HERE, '..', 'data', 'architecture.json');
 const FACTS = path.resolve(HERE, '..', 'data', 'facts.json');
 
 const gitOk = (repo, ...args) => { try { return execFileSync('git', ['-C', path.join(ROOT, repo), ...args], { encoding: 'utf8', maxBuffer: 1024 * 1024 * 64, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return null; } };
-const stripTags = (s) => s
-  .replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&rsquo;/g, '\u2019').replace(/&middot;/g, '·').replace(/&mdash;/g, '—').replace(/&ndash;/g, '–');
+// decode display entities only (never &lt;/&gt;: decoding them could reintroduce markup)
+const ENT = { amp: '&', quot: '"', '#39': "'", '#x27': "'", rsquo: '\u2019', lsquo: '\u2018', middot: '·', mdash: '—', ndash: '–', hellip: '…', nbsp: ' ' };
+const decodeEntities = (s) => s.replace(/&([a-zA-Z0-9#x]{1,8});/g, (m, k) => (ENT[k] !== undefined ? ENT[k] : m));
+// strip tags with a tokenizer (not a regex replace): text between tags is kept, markup is dropped
+function stripTags(s) {
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const lt = s.indexOf('<', i);
+    if (lt === -1) { out += s.slice(i); break; }
+    out += s.slice(i, lt);
+    const gt = s.indexOf('>', lt);
+    if (gt === -1) { out += s.slice(lt + 1); break; }
+    i = gt + 1;
+  }
+  return decodeEntities(out);
+}
 
 const eng = JSON.parse(fs.readFileSync(ENG, 'utf8'));
 const arch = JSON.parse(fs.readFileSync(ARCH, 'utf8'));
