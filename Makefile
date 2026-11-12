@@ -2,7 +2,7 @@
 IMAGE ?= iqvo-landing-page:dev
 PORT  ?= 8080
 
-.PHONY: help facts engineering architecture build check check-online serve docker-build docker-test docker-run clean
+.PHONY: help facts engineering architecture briefings build check check-online serve docker-build docker-test docker-run clean
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  %-14s %s\n", $$1, $$2}'
@@ -15,6 +15,9 @@ engineering: ## recount the engineering study (needs fetched ../ checkouts + a G
 
 architecture: ## recount the architecture assessment (needs fetched ../ checkouts + the day's engineering.json)
 	node scripts/collect-architecture.mjs
+
+briefings: ## recount the executive briefings (needs fetched ../ checkouts + the day's engineering/architecture data)
+	node scripts/collect-briefings.mjs
 
 build: ## render src/ + data/facts.json into dist/ (SITE_URL=https://... for absolute OG urls)
 	node scripts/build.mjs

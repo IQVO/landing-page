@@ -218,3 +218,74 @@ b.r-warn, b.r-bad, p.r-warn, p.r-bad { color: var(--amber-deep); }
 .ffpill--fail { background: color-mix(in srgb, #c4320f 12%, #fff); color: #c4320f; }
 .ffpill--na { background: color-mix(in srgb, var(--navy, #0b1d2d) 7%, #fff); color: color-mix(in srgb, var(--navy, #0b1d2d) 60%, #fff); }
 .t--matrix .ffc { font-size: 0.9rem; }
+
+/* Executive briefings (/briefings/…). Landing-template sections; only cards, diagrams and chips are new. */
+.sec-title { font: 650 clamp(2rem, 1.2rem + 3.2vw, 3.4rem)/1.06 var(--f-display, inherit); letter-spacing: -0.02em; margin: 0.4rem 0 1rem; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pcards { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 0; padding: 0; }
+.pcard a { display: block; height: 100%; padding: 1.25rem 1.4rem; border: 1px solid var(--line); border-radius: var(--r, 12px); background: #fff; text-decoration: none; color: inherit; }
+.pcard a:hover { border-color: var(--navy); }
+.pcard h3 { font: 650 1.25rem/1.25 var(--f-display, inherit); margin: 0.3rem 0 0.5rem; }
+.pcard__lede { color: var(--ink-soft, #43525f); font-size: 0.92rem; margin: 0 0 0.7rem; }
+.pcard__n { color: var(--muted); font-size: 0.78rem; }
+.platcards { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 0.75rem; margin: 0; padding: 0; }
+.platcard { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.9rem 1rem; border: 1px solid var(--line-dark, #2a4a63); border-radius: var(--r, 12px); font-size: 0.88rem; }
+.platcard b { font-size: 0.95rem; }
+.platcard .muted { font-size: 0.8rem; }
+.platcard a { color: var(--mint); font-size: 0.78rem; }
+.projs { display: flex; flex-direction: column; gap: 1.1rem; }
+.proj { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 1.4rem; padding: 1.3rem 1.5rem; border: 1px solid var(--line); border-radius: var(--r, 12px); background: #fff; }
+.proj--flip .proj__main { order: 2; }
+.proj--flip .proj__side { order: 1; }
+.proj__main h3 { font: 650 1.15rem/1.3 var(--f-display, inherit); margin: 0.2rem 0 0.6rem; }
+.proj__mission { font-size: 0.92rem; color: var(--ink-soft, #43525f); }
+.proj__caps li { font-size: 0.88rem; margin-bottom: 0.3rem; }
+.proj__next { font-size: 0.88rem; margin: 0.6rem 0 0; }
+.proj__side { display: flex; flex-direction: column; gap: 0.7rem; align-self: start; }
+.proj__links { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; font-size: 0.78rem; }
+.proj__links a { color: var(--navy); }
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.72rem; color: var(--ink-soft, #43525f); background: var(--paper, #f7f8f7); }
+.ev { margin: 0.7rem 0 0; }
+.ev__h { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0.4rem 0 0.25rem; }
+.ev__l { list-style: none; display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0; padding: 0; }
+.ev__e { font: 500 0.7rem/1.6 var(--f-mono, monospace); background: color-mix(in srgb, var(--mint) 12%, #fff); color: #0d6e56; border-radius: 6px; padding: 0.05rem 0.45rem; }
+.ev__l--c .ev__e { background: color-mix(in srgb, var(--navy) 7%, #fff); color: var(--navy); }
+.pending { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 0.75rem; }
+.pending li { border: 1px dashed var(--line); border-radius: var(--r, 12px); padding: 0.9rem 1rem; font-size: 0.88rem; background: var(--paper, #f7f8f7); }
+.pending a { font-size: 0.75rem; color: var(--navy); }
+/* flow diagram */
+.fd { width: 100%; height: auto; display: block; }
+.fd__bg { fill: color-mix(in srgb, var(--navy) 86%, #000); }
+.fd__stage { fill: var(--mint); font: 600 11px var(--f-mono, monospace); letter-spacing: 0.08em; text-transform: uppercase; }
+.fd__col { stroke: color-mix(in srgb, #fff 14%, transparent); stroke-dasharray: 2 5; }
+.fd__edge { fill: none; stroke: var(--mint); stroke-opacity: 0.55; stroke-width: 1.6; }
+.fd__node rect { fill: #fff; }
+.fd__name { fill: var(--navy); font: 650 11.5px var(--f-mono, monospace); }
+.fd__deg { fill: #5d7185; font: 500 9.5px var(--f-mono, monospace); }
+/* hexagon */
+.hx { width: 100%; height: auto; display: block; }
+.hx__bg { fill: var(--paper, #f7f8f7); stroke: var(--line); }
+.hx__side { fill: var(--muted); font: 600 8.5px var(--f-mono, monospace); letter-spacing: 0.08em; text-transform: uppercase; }
+.hx__chip rect { fill: #fff; stroke: var(--line); }
+.hx__chip text { fill: var(--navy); font: 600 9.5px var(--f-mono, monospace); }
+.hx__chip--in rect { stroke: var(--mint); }
+.hx__core rect { fill: var(--navy); }
+.hx__coreT { fill: #fff; font: 650 10.5px var(--f-mono, monospace); }
+.hx__link { stroke: #9fb1c0; stroke-width: 1.2; }
+@media (max-width: 860px) {
+  .pcards { grid-template-columns: 1fr; }
+  .proj { grid-template-columns: 1fr; }
+  .proj--flip .proj__main { order: 1; }
+  .proj--flip .proj__side { order: 2; }
+}
+/* the § 09 band's fifth cell is a label, not a number */
+.engband__txt { font: 600 0.82rem/1.35 var(--f-mono, monospace) !important; letter-spacing: 0.02em; }
+.fd__ah { fill: var(--mint); }
+.fd__name { font-size: 10.5px; }
+.fd__name--sm { font-size: 8.8px; }
+.engband__sub { display: block; font: 500 0.62rem var(--f-mono, monospace); color: var(--muted); letter-spacing: 0.04em; margin-top: 0.15rem; }
+/* briefing blocks must shrink on phones: grid items and chips break instead of widening the page */
+.brief .proj, .brief .proj > * { min-width: 0; }
+.brief .ev__e, .brief .chip, .brief .proj__links, .brief .proj__links a { max-width: 100%; overflow-wrap: anywhere; }
+.brief .pcard a, .brief .platcard { min-width: 0; overflow-wrap: anywhere; }
