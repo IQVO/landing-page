@@ -252,9 +252,10 @@ ${chip(a.inbound, 10, 'in')}${chip(a.outbound.reverse(), W - 128, 'out')}
   }
 
   const deckUrl = (id) => {
+    // hosted copy on the docs Pages site: readable in a browser (GitHub blob pages show source)
     const d = deckOf(id); const e = engOf(id);
     if (!d || !e || e.private) return null;
-    return `${cfg.githubUrl}/${id}/blob/${d.defaultBranch}/executive/index.html`;
+    return `${cfg.docsUrl}/executive/${id}/`;
   };
 
   // ---------------------------------------------------------------- counted chips for one context
