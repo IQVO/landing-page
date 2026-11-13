@@ -282,7 +282,7 @@ ${chip(a.inbound, 10, 'in')}${chip(a.outbound.reverse(), W - 128, 'out')}
 <article class="proj${i % 2 ? ' proj--flip' : ''}" id="p-${esc(id)}">
   <div class="proj__main">
     <p class="kicker mono">${esc(id)}${e?.classification ? ` · ${esc(e.classification.toLowerCase())}` : ''}</p>
-    <h3>${d?.tagline ? esc(clip(d.tagline, 110)) : esc(id)}</h3>
+    <h3>${d?.bigIdea ? esc(clip(d.bigIdea, 120)) : d?.tagline ? esc(clip(d.tagline, 110)) : esc(id)}</h3>
     ${d?.mission ? `<p class="proj__mission">${esc(clip(d.mission, 340))}</p>` : ''}
     ${caps.length ? `<ul class="ticks ticks--plain proj__caps">${caps.map((c2) => `<li>${esc(clip(c2, 190))}</li>`).join('')}</ul>` : ''}
     ${(d?.eventsProduced?.length || d?.eventsConsumed?.length) ? `<div class="ev"><p class="mono ev__h">publishes</p><ul class="ev__l">${(d.eventsProduced || []).slice(0, 6).map((t) => `<li class="ev__e">${esc(t)}</li>`).join('')}</ul>${d.eventsConsumed?.length ? `<p class="mono ev__h">consumes</p><ul class="ev__l ev__l--c">${d.eventsConsumed.slice(0, 4).map((t) => `<li class="ev__e">${esc(t)}</li>`).join('')}</ul>` : ''}</div>` : ''}
@@ -386,7 +386,7 @@ ${P.bridgeNote ? `<section class="section section--white"><div class="wrap"><p c
         <p class="mono pcard__n">${n(members.length)} contexts · ${n(briefed.length)} deck${briefed.length === 1 ? '' : 's'} · ${n(commits)} commits</p>
       </a></li>`;
     }).join('');
-    const platCards = platform.map((d) => `<li class="platcard"><b>${esc(d.repo)}</b><span class="muted">${esc(clip(d.tagline || '', 80))}</span><a class="mono" href="${cfg.githubUrl}/${d.repo}/blob/${d.defaultBranch}/executive/index.html" rel="noopener">deck ↗</a></li>`).join('');
+    const platCards = platform.map((d) => `<li class="platcard"><b>${esc(d.repo)}</b><span class="muted">${esc(clip(d.hook || d.tagline || '', 90))}</span>${deckUrl(d.repo) ? `<a class="mono" href="${deckUrl(d.repo)}" rel="noopener">deck ↗</a>` : ''}</li>`).join('');
     const body = `
 <section class="section section--white" aria-labelledby="hub-title">
   <div class="wrap">
