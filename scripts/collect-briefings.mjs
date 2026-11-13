@@ -54,42 +54,56 @@ const PLATFORM = new Set(['warehouse-console', 'warehouse-ui-kit', 'warehouse-fl
   'warehouse-harness-template', 'warehouse-docs', 'warehouse-ops-agent', 'e2e-tests', 'e2s-tests', 'landing-page', 'ecosystem', 'provisioning', 'checkout']);
 
 function parseDeck(html, name) {
-  const secs = [...html.matchAll(/<section[^>]*>([\s\S]*?)<\/section>/g)].map((m) => m[1]);
+  // v2 decks key every section with data-k (action titles are sentences, not labels);
+  // v1 decks are still recognised by their fixed slide titles
+  const secs = [...html.matchAll(/<section([^>]*)>([\s\S]*?)<\/section>/g)].map((m) => ({ k: (m[1].match(/data-k="([a-z-]+)"/) || [])[1] || null, body: m[2] }));
+  const LEGACY = [
+    ['mission', (t) => t.startsWith('Mission')], ['capabilities', (t) => t.startsWith('What This Delivers')],
+    ['domain', (t) => t.startsWith('Ubiquitous')], ['architecture', (t) => t.startsWith('Hexagonal') || t.startsWith('Platform Architecture')],
+    ['events', (t) => t === 'CloudEvents on Kafka'],
+    ['observability', (t) => t === 'Production-Grade Discipline' || t === 'Correlation & Discipline' || t === 'One Pipeline: Traces, Metrics, Logs'],
+    ['footprint', (t) => t === 'Engineering Footprint'], ['roadmap', (t) => t === 'Next Steps'], ['risks', (t) => t.startsWith('Risks')],
+  ];
   const notes = (sec) => { const m = sec.match(/<aside class="notes">([\s\S]*?)<\/aside>/); return m ? stripTags(m[1]).trim() : ''; };
   const title = (sec) => { const m = sec.match(/<h[12][^>]*>([\s\S]*?)<\/h[12]>/); return m ? stripTags(m[1]).trim() : ''; };
   const lis = (sec) => [...sec.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((m) => stripTags(m[1]).trim());
   const tds = (sec) => Object.fromEntries([...sec.matchAll(/<tr><td[^>]*>([\s\S]*?)<\/td><td>([\s\S]*?)<\/td><\/tr>/g)].map((m) => [stripTags(m[1]).trim(), stripTags(m[2]).trim()]));
   const out = { capabilities: [], domainModel: [], eventsProduced: [], eventsConsumed: [], observability: {}, metrics: {}, nextSteps: [], risks: [] };
-  for (const sec of secs) {
+  for (const { k: dk, body: sec } of secs) {
     const t = title(sec); const n = notes(sec); const plain = stripTags(sec).slice(0, 400);
-    if (t.startsWith('Mission')) out.mission = n;
-    else if (t.startsWith('What This Delivers')) out.capabilities = n.split('\n').filter(Boolean).slice(0, 6);
-    else if (t.startsWith('Ubiquitous')) { out.domainModel = lis(sec).slice(0, 8); }
-    else if (t.startsWith('Hexagonal') || t.startsWith('Platform Architecture')) {
+    const k = dk || (LEGACY.find(([, f]) => f(t)) || [])[0] || (!t && n && plain.includes('executive briefing') ? 'cover' : null);
+    if (k === 'mission') out.mission = n;
+    else if (k === 'capabilities') out.capabilities = n.split('\n').filter(Boolean).slice(0, 6);
+    else if (k === 'domain') out.domainModel = dk ? n.split('\n').filter((l) => l && !l.startsWith('API: ')).slice(0, 8) : lis(sec).slice(0, 8);
+    else if (k === 'summary') out.bigIdea = (n.match(/^BIG IDEA: (.+)$/m) || [])[1] || null;
+    else if (k === 'architecture') {
       out.style = (n.match(/^STYLE: (.+)$/m) || [])[1] || null;
       out.stack = ((n.match(/^STACK: (.+)$/m) || [])[1] || '').split(', ').filter(Boolean).slice(0, 8);
       const td = tds(sec);
       if (td.Storage) out.storage = td.Storage;
-    } else if (t === 'CloudEvents on Kafka') {
+    } else if (k === 'events') {
       let cur = null;
       for (const line of n.split('\n')) {
         if (line.startsWith('PRODUCED:')) cur = out.eventsProduced;
         else if (line.startsWith('CONSUMED:')) cur = out.eventsConsumed;
         else if (line && cur) cur.push(line.trim());
       }
-    } else if (t === 'Production-Grade Discipline' || t === 'Correlation & Discipline' || t === 'One Pipeline: Traces, Metrics, Logs') {
+    } else if (k === 'observability') {
       out.observability.stack = (n.match(/^STACK: (.+)$/m) || [])[1] || null;
       out.observability.practices = ((n.match(/^PRACTICES: (.+)$/m) || [])[1] || '').split(' | ').filter(Boolean).slice(0, 5);
-    } else if (t === 'Engineering Footprint') {
+    } else if (k === 'footprint') {
       const tiles = [...sec.matchAll(/<div class="n">([^<]*)<\/div><div class="l">([^<]*)<\/div>/g)];
       for (const [v, l] of tiles.map((m) => [m[1], m[2]])) {
         if (l === 'DB migrations') out.metrics.migrations = Number(v) || 0;
         else if (l === 'BDD feature files') out.metrics.features = Number(v) || 0;
         else if (l === 'Architecture decisions') out.metrics.adrs = Number(v) || 0;
       }
-    } else if (t === 'Next Steps') out.nextSteps = n.split('\n').filter(Boolean).slice(0, 3);
-    else if (t.startsWith('Risks')) out.risks = n.split('\n').filter(Boolean).slice(0, 3);
-    else if (!t && n && plain.includes('executive briefing')) out.tagline = n.split('\n')[0];
+    } else if (k === 'roadmap') out.nextSteps = n.split('\n').filter(Boolean).slice(0, 3);
+    else if (k === 'risks') out.risks = n.split('\n').filter(Boolean).slice(0, 3);
+    else if (k === 'cover') {
+      out.tagline = n.split('\n')[0];
+      out.hook = (n.match(/^HOOK: (.+)$/m) || [])[1] || null;
+    }
   }
   if (!out.tagline) out.tagline = eng.repos[name]?.description || null;
   return out;

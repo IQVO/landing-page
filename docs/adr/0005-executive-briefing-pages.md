@@ -12,6 +12,13 @@
   committed decks' speaker notes (mission, capabilities, events, risks, next steps), assigns every
   registered context to a program (explicit members first, registry domains second), and writes
   `data/briefings.json`; `scripts/briefings.mjs` renders the pages inside `build.mjs`.
+- **Parse contract (amended Nov 2026)**: v2 decks use action titles (full sentences), so the
+  collector keys every slide on its `data-k` attribute (`cover`, `summary`, `mission`,
+  `capabilities`, `domain`, `events`, `observability`, `footprint`, `roadmap`, `risks`,
+  `architecture`) and falls back to the v1 fixed titles for older decks. It also reads the
+  deck's big idea (`BIG IDEA:` in the summary notes) and hook (`HOOK:` in the cover notes); the
+  big idea heads each briefed project. Deck links point at the hosted copies on the docs site
+  (`/executive/<repo>/`), never at GitHub blob pages, which show HTML source.
 - **Diagrams are data**: each program page draws its event-flow SVG from the context registry's
   real routes (solid arrows inside the program, crossing routes counted below); each briefed
   project draws its hexagon from the architecture assessment's counted adapters. No diagram is
