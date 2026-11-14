@@ -109,8 +109,41 @@
       ]
     },
     {
-      "title": "Confirm that an order shipped",
-      "story": "Once acknowledged, an order can be confirmed as shipped. It is normally triggered when outbound-shipping reports the load as shipped; an operator can also do it by hand. The network gets a label request first.",
+      "title": "Confirm orders when the load ships",
+      "story": "outbound-shipping announces that a load shipped. Each network order on it is confirmed through the same step an operator uses, so a repeat confirms nothing twice. An order this context does not hold is skipped.",
+      "trigger": {
+        "kind": "external",
+        "system": "outbound-shipping",
+        "event": "ShipmentConfirmed"
+      },
+      "policy": "Whenever a load is confirmed as shipped, confirm the network orders on it",
+      "reads": [
+        "Acknowledged orders"
+      ],
+      "command": {
+        "name": "ConfirmNetworkOrderShipment",
+        "via": "policy"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "NetworkOrderShipmentConfirmed"
+      ],
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "is sent the label request and then the shipment confirmation",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/shipment_confirmed_consumer.go",
+        "internal/application/usecases/confirm_network_order_shipment.go",
+        "docs/adr/0014-explicit-shipment-confirmation-endpoint.md"
+      ]
+    },
+    {
+      "title": "Confirm that an order shipped, by hand",
+      "story": "An operator can confirm an acknowledged order as shipped without waiting for the event. The network gets a label request first. This route is kept as the fallback.",
       "trigger": {
         "kind": "actor",
         "name": "Operator"
