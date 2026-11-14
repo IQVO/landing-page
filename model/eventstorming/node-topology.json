@@ -74,6 +74,10 @@
         {
           "system": "linehaul-transportation",
           "does": "keeps the node and re-plans pickups on lanes that end at it"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "notes the node when it is a pickup point"
         }
       ],
       "evidence": [
@@ -148,6 +152,10 @@
         {
           "system": "delivery-promise",
           "does": "marks the node active for promising"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the node's state"
         }
       ],
       "evidence": [
@@ -182,6 +190,10 @@
         {
           "system": "delivery-promise",
           "does": "marks the node suspended"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the node's state"
         }
       ],
       "evidence": [
@@ -217,6 +229,10 @@
         {
           "system": "seller-inbound",
           "does": "marks the node retired in its copy"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the node's state"
         }
       ],
       "evidence": [
@@ -350,6 +366,10 @@
         {
           "system": "order-sourcing",
           "does": "keeps the prefix-to-station assignment"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the postal area's delivery mode and carrier options"
         }
       ],
       "evidence": [
