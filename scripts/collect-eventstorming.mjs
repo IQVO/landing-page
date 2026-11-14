@@ -18,7 +18,6 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
 
@@ -38,15 +37,16 @@ const git = (repo, ...args) => {
 };
 const refOf = (repo) => ['origin/develop', 'origin/main'].find((r) => git(repo, 'rev-parse', '--verify', '-q', r) !== null);
 const show = (repo, ref, p) => git(repo, 'show', `${ref}:${p}`);
-// results that only depend on a commit are cached under the OS temp dir, keyed by repo, commit and CACHE_VERSION
+// results that only depend on a commit are cached in the repo's own gitignored .cache/ (never the shared OS temp dir:
+// a predictable path there can be pre-created or poisoned by another local user), keyed by repo, commit and CACHE_VERSION
 const CACHE_VERSION = 4;
-const CACHE_DIR = path.join(os.tmpdir(), 'iqvo-es-cache');
+const CACHE_DIR = path.join(REPO, '.cache', 'eventstorming');
 function cached(repo, ref, kind, fn) {
   const sha = (git(repo, 'rev-parse', ref) || '').trim();
   const file = path.join(CACHE_DIR, `${repo}-${kind}-v${CACHE_VERSION}-${sha}.json`);
   if (sha && fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
   const v = fn();
-  if (sha) { fs.mkdirSync(CACHE_DIR, { recursive: true }); fs.writeFileSync(file, JSON.stringify(v)); }
+  if (sha) { fs.mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify(v), { mode: 0o600 }); }
   return v;
 }
 const treeCache = new Map();
