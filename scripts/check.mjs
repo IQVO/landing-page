@@ -226,6 +226,17 @@ for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...brie
   const platformDecks = Object.keys(brief.decks).length - briefedInPrograms;
   if (!read('briefings/index.html').includes(new Intl.NumberFormat('en-US').format(brief.fleet.decks))) fail('briefings: deck total missing from the hub');
   if (platformDecks < 0) fail('briefings: more program decks than decks');
+  // ecosystem decks: one per program that has one, hosted copy only (never a GitHub blob), linked from its program page and the hub
+  const eco = brief.ecosystems || {};
+  for (const k of ['wms-wes', 'retail', 'storefront']) {
+    const e = eco[k];
+    if (!e) { fail(`briefings: no ecosystem deck for ${k} (publish it on warehouse-docs, then \`make briefings\`)`); continue; }
+    if (!e.bigIdea || e.takeaways.length !== 3 || !e.ask) fail(`briefings: ecosystem deck ${e.slug} is missing its big idea, three takeaways or ask`);
+    const href = `/executive/${e.slug}/`;
+    if (!read(`briefings/${k}/index.html`).includes(href)) fail(`briefings: ${k} page does not link its ecosystem deck`);
+    if (!read('briefings/index.html').includes(href)) fail(`briefings: hub does not link the ${e.slug} ecosystem deck`);
+  }
+  for (const f of briefPages) if (read(f).includes('/blob/') ) fail(`briefings: ${f} links a GitHub blob page (renders source, unreadable): use the hosted deck URL`);
   const age = (Date.now() - Date.parse(brief.generatedAt)) / 86400000;
   if (age > 8) console.warn(`warn: briefings.json is ${age.toFixed(0)} days old (\`make briefings\`)`);
 }
