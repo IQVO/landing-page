@@ -1,0 +1,412 @@
+{
+  "context": "last-mile-delivery",
+  "oneLine": "Runs the final leg: delivery waves at a station, packages taken in when loads arrive, partner routes, delivery attempts, retries and returns.",
+  "pivotal": [
+    "DeliveryWaveScheduled",
+    "PackageOutForDelivery",
+    "DeliveryAttempted",
+    "PackageReturnInitiated"
+  ],
+  "rows": [
+    {
+      "title": "Keep the list of delivery stations",
+      "story": "Node-topology announces every node. Only delivery stations matter here; a wave or a partner can be set up only for a station that is on this list.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeRegistered"
+      },
+      "policy": "Whenever a node is registered, keep it only if it is a delivery station",
+      "updates": [
+        "Stations"
+      ],
+      "command": {
+        "name": "ApplyNodeRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go"
+      ]
+    },
+    {
+      "title": "Keep the stop of each labelled package",
+      "story": "When a label is issued, the package's stop key and order assignment are kept. Packages for one address share a stop, so they take one place in a wave.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "LabelIssued"
+      },
+      "policy": "Whenever a label is issued, keep the package's stop key; a label without a usable key is ignored",
+      "updates": [
+        "Package stops"
+      ],
+      "command": {
+        "name": "ApplyLabelIssued",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go"
+      ]
+    },
+    {
+      "title": "Schedule a delivery wave",
+      "story": "A station planner opens a wave: an induction cut-off, a delivery window and how many stops it can take. Packages already waiting at the station are taken into it, oldest first.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "reads": [
+        "Stations"
+      ],
+      "command": {
+        "name": "ScheduleWave",
+        "operationId": "scheduleWave"
+      },
+      "aggregate": "DeliveryWave",
+      "events": [
+        "DeliveryWaveScheduled",
+        "DeliveryWaveCapacityChanged"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "adds the wave to its copy so promises can use it"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "adds the wave to the network copy its search uses"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/waves.go",
+        "internal/application/usecases/induct.go",
+        "internal/domain/wave/wave.go"
+      ]
+    },
+    {
+      "title": "Take in packages when a load arrives",
+      "story": "When a load reaches a delivery station, each package goes into the earliest wave that still accepts it. A package no wave accepts waits at the station and a deferral is announced.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "LoadArrived"
+      },
+      "policy": "Whenever a load reaches a delivery station, put each package on the earliest open wave or defer it",
+      "reads": [
+        "Stations",
+        "Package stops"
+      ],
+      "command": {
+        "name": "InductOnArrival",
+        "via": "policy"
+      },
+      "aggregate": "DeliveryWave",
+      "events": [
+        "DeliveryWaveCapacityChanged",
+        "PackageInductionDeferred"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "updates the room left on the wave; a deferred package flags its promise as at risk"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "updates the room left on the wave in its network copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/application/usecases/induct.go",
+        "internal/domain/history/history.go"
+      ]
+    },
+    {
+      "title": "Declare what a stop costs",
+      "story": "A station planner declares the cost of one stop on a wave that is still running. Order-sourcing adds it to the cost of the routes it compares.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "command": {
+        "name": "DeclareWaveCost",
+        "operationId": "declareWaveCost"
+      },
+      "aggregate": "DeliveryWave",
+      "events": [
+        "WaveCostDeclared"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "uses it as the wave's per-stop cost when comparing routes"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/waves.go",
+        "internal/domain/wave/wave.go",
+        "docs/adr/0011-wave-stop-cost-declaration.md"
+      ]
+    },
+    {
+      "title": "Close induction on a wave",
+      "story": "A station planner stops taking packages into a wave, so routes can be planned on a fixed set of packages.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "command": {
+        "name": "CloseInduction",
+        "operationId": "closeInduction"
+      },
+      "aggregate": "DeliveryWave",
+      "evidence": [
+        "internal/application/usecases/waves.go",
+        "internal/domain/wave/wave.go"
+      ]
+    },
+    {
+      "title": "Cancel a wave",
+      "story": "A station planner cancels a wave that is still open. Its packages move to the next eligible wave in the same step, or wait at the station.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "command": {
+        "name": "CancelWave",
+        "operationId": "cancelWave"
+      },
+      "aggregate": "DeliveryWave",
+      "events": [
+        "DeliveryWaveCancelled"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "flags promises whose route used the wave as at risk"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the wave as cancelled in its network copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/waves.go",
+        "internal/domain/wave/wave.go"
+      ]
+    },
+    {
+      "title": "Contract a delivery partner",
+      "story": "A station planner signs up a delivery service partner for a station, with the van capacity of its routes.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "reads": [
+        "Stations"
+      ],
+      "command": {
+        "name": "ContractPartner",
+        "operationId": "contractPartner"
+      },
+      "aggregate": "DeliveryServicePartner",
+      "evidence": [
+        "internal/application/usecases/partners.go",
+        "internal/domain/partner/partner.go"
+      ]
+    },
+    {
+      "title": "Deactivate a delivery partner",
+      "story": "A station planner deactivates a partner. It gets no new routes; routes already planned are not re-checked.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "command": {
+        "name": "DeactivatePartner",
+        "operationId": "deactivatePartner"
+      },
+      "aggregate": "DeliveryServicePartner",
+      "evidence": [
+        "internal/application/usecases/partners.go",
+        "internal/domain/partner/partner.go"
+      ]
+    },
+    {
+      "title": "Plan a partner's route in a wave",
+      "story": "A station planner gives a partner a numbered list of stops from a wave whose induction is closed. The route must fit the van, use only packages of the wave and keep one address in one stop.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "command": {
+        "name": "PlanRoute",
+        "operationId": "planRoute"
+      },
+      "aggregate": "Route",
+      "events": [
+        "RoutePlanned"
+      ],
+      "evidence": [
+        "internal/application/usecases/routes.go",
+        "internal/domain/route/route_planning.go"
+      ]
+    },
+    {
+      "title": "Dispatch a wave",
+      "story": "A station planner sends the wave out. Packages that no route holds are moved to the next wave, and a wave with no route completes at once.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "command": {
+        "name": "DispatchWave",
+        "operationId": "dispatchWave"
+      },
+      "aggregate": "DeliveryWave",
+      "evidence": [
+        "internal/application/usecases/waves.go",
+        "internal/domain/wave/wave.go"
+      ]
+    },
+    {
+      "title": "Start a route",
+      "story": "An operator starts a planned route of a dispatched wave. Every package goes out for delivery, and each stop gets an arrival window of up to two hours inside the wave's delivery window.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "StartRoute",
+        "operationId": "startRoute"
+      },
+      "aggregate": "Route",
+      "events": [
+        "PackageOutForDelivery",
+        "StopEtaWindowAssigned"
+      ],
+      "then": [
+        {
+          "system": "shipping-and-tracking",
+          "does": "records an out-for-delivery scan and keeps the arrival window of each package"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/routes.go",
+        "internal/domain/route/route_start.go",
+        "internal/domain/route/route_eta.go"
+      ]
+    },
+    {
+      "title": "Record a delivery attempt",
+      "story": "The driver records for each package whether it was delivered or failed. A package is delivered at most once, and the route completes when every package has an attempt.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Driver"
+      },
+      "command": {
+        "name": "RecordAttempt",
+        "operationId": "recordAttempt"
+      },
+      "aggregate": "Route",
+      "events": [
+        "DeliveryAttempted"
+      ],
+      "then": [
+        {
+          "system": "shipping-and-tracking",
+          "does": "records a delivered or failed-delivery scan for the package"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/routes.go",
+        "internal/domain/route/route.go"
+      ]
+    },
+    {
+      "title": "Retry a failed delivery, or send it back",
+      "story": "After a failed attempt the package goes on the next eligible wave. After the third failure it is not retried: a return to sender starts.",
+      "trigger": {
+        "kind": "event",
+        "event": "DeliveryAttempted"
+      },
+      "policy": "Whenever an attempt fails, place the package on the next wave unless it was the third failure",
+      "command": {
+        "name": "RetryNextWave",
+        "via": "policy"
+      },
+      "aggregate": "History",
+      "events": [
+        "PackageReturnInitiated"
+      ],
+      "then": [
+        {
+          "system": "shipping-and-tracking",
+          "does": "marks the package as returned to sender"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/routes.go",
+        "internal/domain/history/history.go"
+      ]
+    },
+    {
+      "title": "Flag a drop-off point that keeps failing",
+      "story": "Each attempt updates the profile of its stop. After two failed visits for not-home or access problems within 60 days, the point is flagged for the packages affected. A flag changes no route.",
+      "trigger": {
+        "kind": "event",
+        "event": "DeliveryAttempted"
+      },
+      "policy": "Whenever an attempt is recorded, update the stop's profile; two failed visits flag the point",
+      "command": {
+        "name": "Observe",
+        "via": "policy"
+      },
+      "aggregate": "Profile",
+      "events": [
+        "DeliveryPointFlagged"
+      ],
+      "then": [
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the flag on every package of the stop"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/delivery_points.go",
+        "internal/domain/deliverypoint/observe.go",
+        "docs/adr/0014-delivery-point-profile.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A route stays out for delivery until every package has an attempt. If the driver skips one, the route and its wave stay open.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "Deactivating a partner re-checks nothing: routes already planned keep the partner and the van capacity read at planning time.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "Failure reasons are free text and the optional outcome detail is dormant until a client sends it, so delivery-point flags depend on clients adopting it.",
+      "evidence": "docs/adr/0014-delivery-point-profile.md"
+    },
+    {
+      "text": "The arrival window is spread evenly across the wave's window: there is no travel-time or position data to refine it.",
+      "evidence": "docs/adr/0013-stop-eta-window.md"
+    },
+    {
+      "text": "Service-area assignments are kept but no decision reads them yet.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Entrance, parking and locker knowledge for a drop-off point is left to a later item that needs its own model change.",
+      "evidence": "docs/adr/0014-delivery-point-profile.md"
+    }
+  ]
+}

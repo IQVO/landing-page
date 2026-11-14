@@ -1,0 +1,431 @@
+{
+  "context": "wes-work-planning",
+  "oneLine": "Turns a shift's forecast volume into a plan, then releases work to the floor continuously, earliest cut-off first. It watches backlog and flags where to rebalance.",
+  "pivotal": [
+    "ShiftPlanCommitted",
+    "WorkUnitCreated",
+    "WorkReleased",
+    "WorkUnitCompleted",
+    "BacklogThresholdBreached"
+  ],
+  "rows": [
+    {
+      "title": "Record the volume due by each cut-off",
+      "story": "A planner records how many units are due by each carrier cut-off for a path. For case picks, the cases, cube and weight are worked out from the SKU's pack facts.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Pack facts per SKU"
+      ],
+      "command": {
+        "name": "ReceiveChargeForecast",
+        "operationId": "receiveChargeForecast"
+      },
+      "aggregate": "ChargeForecast",
+      "events": [
+        "ChargeForecastReceived"
+      ],
+      "evidence": [
+        "internal/application/usecases/receive_charge_forecast.go",
+        "internal/domain/charge/forecast.go",
+        "internal/domain/shared/events.go"
+      ]
+    },
+    {
+      "title": "Commit the plan for a path",
+      "story": "A planner commits rate, heads and hours for a path. Heads cannot exceed the stations installed. If workforce-management has already committed a different headcount, the difference is flagged in the same step.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Labour plan from workforce",
+        "Travel distance between stations",
+        "Pack facts per SKU"
+      ],
+      "command": {
+        "name": "CommitShiftPlan",
+        "operationId": "commitShiftPlan"
+      },
+      "aggregate": "ShiftPlan",
+      "events": [
+        "ShiftPlanCommitted",
+        "PathPlanDriftDetected"
+      ],
+      "evidence": [
+        "internal/application/usecases/commit_shift_plan.go",
+        "internal/application/usecases/drift_reconciliation.go",
+        "internal/domain/plan/shift_plan.go"
+      ]
+    },
+    {
+      "title": "Compare with the labour plan",
+      "story": "workforce-management commits its own headcount per path. This service keeps a read-only copy and, if its own plan for the path has different heads, flags the difference. It only flags; neither plan is corrected.",
+      "trigger": {
+        "kind": "external",
+        "system": "workforce-management",
+        "event": "ShiftPlanCommitted"
+      },
+      "policy": "Whenever the labour plan arrives, keep a copy and flag a difference in heads from our plan",
+      "updates": [
+        "Labour plan from workforce"
+      ],
+      "command": {
+        "name": "ObserveLaborPlan",
+        "via": "policy"
+      },
+      "aggregate": "LaborPlanObserved",
+      "events": [
+        "PathPlanDriftDetected"
+      ],
+      "evidence": [
+        "internal/application/usecases/observe_labor_plan.go",
+        "internal/application/usecases/drift_reconciliation.go",
+        "internal/domain/laborview/drift.go",
+        "docs/docs/adr/0019-labor-plan-committed-shift-plan-reconciliation.md"
+      ]
+    },
+    {
+      "title": "Turn an allocated order into work",
+      "story": "When an order is allocated, fully or in part, each released line becomes one work unit on its process path. A path the catalogue does not know is refused loudly instead of filling a pool nobody serves.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-management",
+        "event": "OrderAllocated"
+      },
+      "policy": "Whenever an order is allocated, enqueue one work unit per released line",
+      "command": {
+        "name": "ApplyOrderAllocated",
+        "via": "policy"
+      },
+      "aggregate": "WorkUnit",
+      "events": [
+        "WorkUnitCreated"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "confirms the order line was released to the floor planner, so it knows nothing was lost"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_order_allocated.go",
+        "internal/application/usecases/enqueue_work_unit.go",
+        "internal/domain/workunit/work_unit.go"
+      ]
+    },
+    {
+      "title": "Turn a stock transfer into work",
+      "story": "network-inventory-planning releases a transfer demand. It becomes one work unit named after the demand, so a repeat of the same demand never makes a second one. Only transfer legs are accepted, never relocation.",
+      "trigger": {
+        "kind": "external",
+        "system": "network-inventory-planning",
+        "event": "WorkDemandReleased"
+      },
+      "policy": "Whenever a transfer demand is released, enqueue one work unit for it",
+      "command": {
+        "name": "ApplyWorkDemandReleased",
+        "via": "policy"
+      },
+      "aggregate": "WorkUnit",
+      "events": [
+        "WorkUnitCreated"
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_work_demand_released.go",
+        "docs/docs/adr/0033-transfer-work-demand-choreography.md"
+      ]
+    },
+    {
+      "title": "Turn an approved slot plan into relocation work",
+      "story": "slotting-optimization approves a plan of moves. Each move becomes a relocation unit, and a move waiting on another stays blocked until that one completes. A newer plan cancels the older plan's unreleased moves.",
+      "trigger": {
+        "kind": "external",
+        "system": "slotting-optimization",
+        "event": "SlotPlanApproved"
+      },
+      "policy": "Whenever a slot plan is approved, plan one relocation unit per move and cancel older unreleased moves",
+      "command": {
+        "name": "ApplySlotPlanApproved",
+        "via": "policy"
+      },
+      "aggregate": "WorkUnit",
+      "events": [
+        "WorkUnitCreated"
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_slot_plan_approved.go",
+        "internal/domain/relocation/plan.go",
+        "docs/docs/adr/0040-slot-plan-relocation-work.md"
+      ]
+    },
+    {
+      "title": "Turn a pick-face top-up request into work",
+      "story": "pick-face-replenishment asks for a top-up, and it becomes one work unit, urgent ones sorting ahead. A cancellation before release withdraws the unit. Work already released runs to completion.",
+      "trigger": {
+        "kind": "external",
+        "system": "pick-face-replenishment",
+        "event": "ReplenishmentRequested"
+      },
+      "policy": "Whenever a top-up is requested, plan one work unit for it, with a deadline set by its priority",
+      "command": {
+        "name": "ApplyReplenishmentRequested",
+        "via": "policy"
+      },
+      "aggregate": "WorkUnit",
+      "events": [
+        "WorkUnitCreated"
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_replenishment_requested.go",
+        "internal/application/usecases/apply_replenishment_cancelled.go",
+        "docs/docs/adr/0042-pick-face-replenishment-work.md"
+      ]
+    },
+    {
+      "title": "Release the next work",
+      "story": "A supervisor, or an agent, releases the pending work unit with the earliest cut-off. A path fed by release stops at its work-in-progress limit. The release carries hazard hints from the product's classification.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Supervisor"
+      },
+      "reads": [
+        "Product hazard classes"
+      ],
+      "command": {
+        "name": "ReleaseNextWork",
+        "operationId": "releaseNextWork"
+      },
+      "aggregate": "WorkPool",
+      "events": [
+        "WorkReleased"
+      ],
+      "then": [
+        {
+          "system": "fulfillment-execution",
+          "does": "turns the released work into a floor task needing the skills its path requires"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/release_next_work.go",
+        "internal/domain/release/work_pool.go",
+        "internal/domain/release/release_policy.go"
+      ]
+    },
+    {
+      "title": "Finish a work unit when its task is done",
+      "story": "When the floor completes the task, the work unit is completed and its slot in the pool is freed. A completed relocation admits the moves that were waiting behind it. Tasks this service never planned are ignored.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCompleted"
+      },
+      "policy": "Whenever a floor task completes, complete its work unit and free its work-in-progress slot",
+      "command": {
+        "name": "ApplyTaskCompleted",
+        "via": "policy"
+      },
+      "aggregate": "WorkUnit",
+      "events": [
+        "WorkUnitCompleted"
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_task_completed.go",
+        "internal/application/usecases/record_completion.go",
+        "docs/docs/adr/0043-taskcompleted-already-completed-skip.md"
+      ]
+    },
+    {
+      "title": "Watch a path's backlog",
+      "story": "A supervisor samples a path's backlog. Over its alarm threshold, an alarm goes out. If a cut-off time is given, the path's remaining room for new work before it is announced too.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Supervisor"
+      },
+      "command": {
+        "name": "SampleBacklog",
+        "operationId": "sampleBacklog"
+      },
+      "aggregate": "WorkPool",
+      "events": [
+        "BacklogThresholdBreached",
+        "PathCapacityChanged"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens or updates an exception for the path on a backlog alarm"
+        },
+        {
+          "system": "order-management",
+          "does": "keeps the remaining room per path and cut-off for its delivery promises"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "keeps the remaining room per path for its own capacity figures"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sample_backlog.go",
+        "internal/domain/release/work_pool.go",
+        "docs/docs/adr/0018-path-capacity-changed.md"
+      ]
+    },
+    {
+      "title": "Decide how to rebalance a path",
+      "story": "A supervisor asks what to do about a path. A flow-fed path over its alarm gets 'throttle upstream'. A release-fed path stuck at its limit with work waiting gets 'reassign labour'. Both are flags only. A rate deviation notice is declared but never raised.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Supervisor"
+      },
+      "command": {
+        "name": "RebalanceDecision",
+        "operationId": "rebalanceDecision"
+      },
+      "aggregate": "WorkPool",
+      "events": [
+        "PathThrottled",
+        "LaborReassignmentFlagged",
+        "RateDeviationDetected"
+      ],
+      "evidence": [
+        "internal/application/usecases/rebalance_decision.go",
+        "docs/docs/adr/0003-flow-balancing-as-domain-service.md",
+        "docs/docs/adr/0020-flowfed-path-observed-throughput-signal.md"
+      ]
+    },
+    {
+      "title": "Set how a path's pool is fed",
+      "story": "A supervisor sets whether a path is fed by release or by flow, and its work-in-progress limit. Lowering the limit never evicts work: releases just pause until the count falls under it. Nothing is announced.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Supervisor"
+      },
+      "command": {
+        "name": "ConfigurePool",
+        "operationId": "configurePool"
+      },
+      "aggregate": "WorkPool",
+      "evidence": [
+        "internal/application/usecases/configure_pool.go",
+        "internal/domain/release/work_pool.go",
+        "docs/docs/adr/0034-configure-pool-command.md"
+      ]
+    },
+    {
+      "title": "Keep the process-path list",
+      "story": "process-path-management announces every path defined, revised or retired. When the catalogue source is set to that feed, this service follows it live. By default it reads a file instead.",
+      "trigger": {
+        "kind": "external",
+        "system": "process-path-management",
+        "event": "ProcessPathCreated"
+      },
+      "policy": "Whenever a path is created, revised or retired, update the local process-path list",
+      "updates": [
+        "Process-path list"
+      ],
+      "evidence": [
+        "internal/adapters/outbound/kafkacatalog/consumer.go",
+        "cmd/wes/catalogue.go",
+        "docs/docs/adr/0030-kafka-sourced-path-catalogue.md"
+      ]
+    },
+    {
+      "title": "Keep the product hazard and pack facts",
+      "story": "product-master announces each product's classification, such as hazmat or fragile, and its pack levels. This service keeps its own copies and stamps the hints on released work. A newer version replaces an older one.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductClassified"
+      },
+      "policy": "Whenever a product is classified or its pack level changes, replace the local copy with the newer version",
+      "updates": [
+        "Product hazard classes",
+        "Pack facts per SKU"
+      ],
+      "command": {
+        "name": "ObserveProductClassification",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/observe_product_classification.go",
+        "internal/application/usecases/observe_pack_level.go",
+        "internal/adapters/inbound/kafka/product_classification_consumer.go",
+        "docs/docs/adr/0035-product-classification-local-copy.md",
+        "docs/docs/adr/0045-pack-aware-work-units.md"
+      ]
+    },
+    {
+      "title": "Keep the usable-stock view",
+      "story": "inventory-storage announces stock reserved and reservations revoked. This service keeps a read-only count of usable stock per SKU that operators can look up. No release decision depends on it.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "StockReserved"
+      },
+      "policy": "Whenever stock is reserved or a reservation is revoked, adjust the usable-stock count for that SKU",
+      "updates": [
+        "Usable stock per SKU"
+      ],
+      "command": {
+        "name": "ObserveInventoryChange",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/observe_inventory_change.go",
+        "internal/domain/inventoryview/usable_inventory_observed.go",
+        "docs/docs/adr/0006-labor-plan-view-not-shift-plan.md"
+      ]
+    },
+    {
+      "title": "Feed the throughput report",
+      "story": "The service reads its own announcements and keeps hourly figures per path: work released and completed, backlog alarms and throttling. They feed the release throughput report.",
+      "trigger": {
+        "kind": "event",
+        "event": "WorkReleased"
+      },
+      "policy": "Whenever work is released or completed, or an alarm is raised, add it to that path's hourly figures",
+      "updates": [
+        "Release throughput report"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "docs/docs/adr/0011-analytical-data-product.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "RateDeviationDetected is declared but no rule raises it. A test fails if code starts raising it before a decision defines when.",
+      "evidence": "docs/docs/adr/0020-flowfed-path-observed-throughput-signal.md"
+    },
+    {
+      "text": "PathPlanDriftDetected has no reader yet. Any reaction by another context, such as an alert, is explicitly deferred.",
+      "evidence": "docs/docs/adr/0019-labor-plan-committed-shift-plan-reconciliation.md"
+    },
+    {
+      "text": "Remaining room for flow-fed paths is permanently unknown, and a consumer must match it to a cut-off by nearest time because there is no stronger key.",
+      "evidence": "docs/docs/adr/0018-path-capacity-changed.md"
+    },
+    {
+      "text": "Committing a plan can ask facility-layout live for a travel distance. It is optional and fails open. Moving it to events is a tracked follow-up.",
+      "evidence": "docs/docs/adr/0044-postgres-and-kafka-are-the-only-runtime.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A real-time, sub-hour observed-throughput figure per flow-fed path is deferred until a consumer needs fresher data than the report.",
+      "evidence": "docs/docs/adr/0020-flowfed-path-observed-throughput-signal.md"
+    },
+    {
+      "text": "A cancellation event for unreleased work units can be added if a consumer needs one. Today a cancelled unit is visible only through the read API.",
+      "evidence": "docs/docs/adr/0040-slot-plan-relocation-work.md"
+    },
+    {
+      "text": "Drift detection could also compare rate and hours, and track drift across shifts. Today it compares planned heads only.",
+      "evidence": "docs/docs/adr/0019-labor-plan-committed-shift-plan-reconciliation.md"
+    }
+  ]
+}

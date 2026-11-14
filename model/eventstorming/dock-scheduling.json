@@ -1,0 +1,523 @@
+{
+  "context": "dock-scheduling",
+  "oneLine": "Owns door time: who may use which dock door and when. It books, moves and cancels appointments, and follows the truck's real arrival and door from the yard.",
+  "pivotal": [
+    "DockAppointmentBooked",
+    "DockAppointmentCheckedIn",
+    "DockAppointmentDoorReassigned",
+    "DockAppointmentCompleted",
+    "DockAppointmentNoShow"
+  ],
+  "rows": [
+    {
+      "title": "Book a time window at a dock door",
+      "story": "A carrier books a window at a door. It is refused if the door is closed or out of hours, the ASNs are unknown or already booked, the carrier is suspended, or another booking overlaps.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Carrier scheduler"
+      },
+      "reads": [
+        "Doors kept from facility-layout",
+        "ASN copy",
+        "Cut-off schedule",
+        "Door calendar and carrier registry"
+      ],
+      "command": {
+        "name": "BookAppointment",
+        "operationId": "bookAppointment"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentBooked"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "keeps a copy of the booking so the gate can match the arriving truck"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "adds the booking to its view of expected inbound demand"
+        },
+        {
+          "system": "inbound-receiving",
+          "does": "keeps a copy of inbound bookings"
+        },
+        {
+          "system": "outbound-shipping",
+          "does": "for an outbound booking with a cut-off, assigns the door to that load"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/book.go",
+        "internal/domain/dockappointment/appointment.go",
+        "internal/domain/dockappointment/schedule.go"
+      ]
+    },
+    {
+      "title": "Move a booking to another window or door",
+      "story": "A carrier moves a booked appointment to a new window, or to another door. The same checks as a new booking apply. The event keeps the previous window and door.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Carrier scheduler"
+      },
+      "reads": [
+        "Doors kept from facility-layout",
+        "Door calendar and carrier registry"
+      ],
+      "command": {
+        "name": "RescheduleAppointment",
+        "operationId": "rescheduleAppointment"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentRescheduled"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "updates its copy; frees held yard moves if the door changed"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "moves the booking in its expected inbound demand"
+        },
+        {
+          "system": "inbound-receiving",
+          "does": "updates the window and door in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/book.go",
+        "internal/domain/dockappointment/appointment.go",
+        "internal/domain/dockappointment/events.go"
+      ]
+    },
+    {
+      "title": "Cancel a booking",
+      "story": "The carrier or the dock planner cancels a booked or checked-in appointment with a reason. The door window is freed.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Carrier or dock planner"
+      },
+      "command": {
+        "name": "CancelAppointment",
+        "operationId": "cancelAppointment"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentCancelled"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "marks it cancelled in its copy and frees held yard moves"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "records the cancellation in its expected inbound demand"
+        },
+        {
+          "system": "inbound-receiving",
+          "does": "marks it cancelled in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/change.go",
+        "internal/domain/dockappointment/appointment.go"
+      ]
+    },
+    {
+      "title": "Report that a truck will be late",
+      "story": "A carrier reports when the truck will arrive. If that is later than the window plus the site's tolerance, the booking is flagged at risk. An ETA inside the tolerance clears an earlier flag.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Carrier scheduler"
+      },
+      "command": {
+        "name": "ReportEta",
+        "operationId": "reportEta"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentAtRisk"
+      ],
+      "evidence": [
+        "internal/application/usecases/change.go",
+        "internal/domain/dockappointment/appointment.go",
+        "internal/domain/dockappointment/types.go"
+      ]
+    },
+    {
+      "title": "Cancel when every ASN of a booking is cancelled",
+      "story": "inbound-receiving announces that an ASN was cancelled. The ASN is marked cancelled in the local copy, and a booked inbound appointment whose ASNs are all cancelled is cancelled too.",
+      "trigger": {
+        "kind": "external",
+        "system": "inbound-receiving",
+        "event": "ASNCancelled"
+      },
+      "policy": "Whenever the last ASN of a booked inbound appointment is cancelled, cancel the appointment",
+      "updates": [
+        "ASN copy"
+      ],
+      "command": {
+        "name": "CancelAppointment",
+        "via": "policy"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentCancelled"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "marks it cancelled in its copy and frees held yard moves"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "records the cancellation in its expected inbound demand"
+        },
+        {
+          "system": "inbound-receiving",
+          "does": "marks it cancelled in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/adapters/inbound/kafka/asn_consumer.go",
+        "internal/application/usecases/change.go"
+      ]
+    },
+    {
+      "title": "Cancel when the gate turns a truck away",
+      "story": "The yard refuses a visit at the gate. If its appointment is still booked, it is cancelled with the reason 'turned away'. Any other state is ignored and counted.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "VisitRejected"
+      },
+      "policy": "Whenever the gate turns a visit away, cancel its booked appointment",
+      "command": {
+        "name": "CancelAppointment",
+        "via": "policy"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentCancelled"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "marks it cancelled in its copy and frees held yard moves"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "records the cancellation in its expected inbound demand"
+        },
+        {
+          "system": "inbound-receiving",
+          "does": "marks it cancelled in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/adapters/inbound/kafka/yard_consumer.go",
+        "docs/docs/ddd/eventstorming.md"
+      ]
+    },
+    {
+      "title": "Note that the truck is at the gate",
+      "story": "The yard checks a truck in against a booking. The appointment becomes checked in and records whether the truck was early, on time or late.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "VisitCheckedIn"
+      },
+      "policy": "Whenever a visit checks in against a booked appointment, record the arrival as early, on time or late",
+      "command": {
+        "name": "RecordArrival",
+        "via": "policy"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentCheckedIn"
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/adapters/inbound/kafka/yard_consumer.go",
+        "internal/domain/dockappointment/commands.go"
+      ]
+    },
+    {
+      "title": "Follow the truck to the door it really used",
+      "story": "If a trailer docks at a different door than the booked one, the real door wins and the booking moves there, even over another booking. Bookings it now overlaps are flagged at risk.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "TrailerDocked"
+      },
+      "policy": "Whenever a trailer docks at another door than booked, the actual door wins",
+      "command": {
+        "name": "ReassignDoor",
+        "via": "policy"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentDoorReassigned",
+        "DockAppointmentAtRisk"
+      ],
+      "then": [
+        {
+          "system": "inbound-receiving",
+          "does": "updates the appointment's door in its copy, so a receipt records the right door"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/yard.go",
+        "internal/domain/dockappointment/appointment.go",
+        "docs/adr/0010-door-reassigned-is-an-integration-event.md"
+      ]
+    },
+    {
+      "title": "Close the booking when the trailer leaves the door",
+      "story": "When the yard reports the trailer undocked, the appointment is completed. If this news arrives before the gate check-in, the arrival is recorded as implicit.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "TrailerUndocked"
+      },
+      "policy": "Whenever a trailer leaves its door, complete the appointment it came for",
+      "command": {
+        "name": "RecordDoorRelease",
+        "via": "policy"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentCompleted"
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/adapters/inbound/kafka/yard_consumer.go",
+        "internal/domain/dockappointment/appointment.go"
+      ]
+    },
+    {
+      "title": "Sweep for carriers that never came",
+      "story": "A scheduler calls the sweep. Every booked appointment whose window plus the site's grace period has passed becomes a no-show. A no-show is final: a late carrier has to book again.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Scheduler cron"
+      },
+      "policy": "Every sweep, mark each booked appointment whose window and grace have passed as a no-show",
+      "command": {
+        "name": "RunNoShowSweep",
+        "operationId": "runNoShowSweep"
+      },
+      "aggregate": "DockAppointment",
+      "events": [
+        "DockAppointmentNoShow"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "marks it a no-show in its copy and frees held yard moves"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "records the no-show in its expected inbound demand"
+        },
+        {
+          "system": "exception-management",
+          "does": "opens an exception case for the no-show, or updates the open one"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/change.go",
+        "internal/domain/dockappointment/appointment.go",
+        "docs/docs/ddd/eventstorming.md"
+      ]
+    },
+    {
+      "title": "Declare when a site's doors operate",
+      "story": "A dock planner sets the operating hours of a site's doors. New hours that would strand an active appointment are refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock planner"
+      },
+      "command": {
+        "name": "DeclareOperatingHours",
+        "operationId": "declareOperatingHours"
+      },
+      "aggregate": "DockCalendar",
+      "events": [
+        "DoorOperatingHoursDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/calendar.go",
+        "internal/domain/dockcalendar/calendar.go",
+        "internal/domain/dockcalendar/hours.go"
+      ]
+    },
+    {
+      "title": "Close a door for a while",
+      "story": "A dock planner closes a door for a period, for example for repairs. It is refused if it overlaps another closure or covers an active appointment.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock planner"
+      },
+      "command": {
+        "name": "ScheduleDoorClosure",
+        "operationId": "scheduleDoorClosure"
+      },
+      "aggregate": "DockCalendar",
+      "events": [
+        "DoorClosureScheduled"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "keeps the closure in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/calendar.go",
+        "internal/domain/dockcalendar/calendar.go"
+      ]
+    },
+    {
+      "title": "Reopen a closed door",
+      "story": "A dock planner lifts a scheduled closure early, and the door can be booked again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock planner"
+      },
+      "command": {
+        "name": "LiftDoorClosure",
+        "operationId": "liftDoorClosure"
+      },
+      "aggregate": "DockCalendar",
+      "events": [
+        "DoorClosureLifted"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "removes the closure from its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/calendar.go",
+        "internal/domain/dockcalendar/calendar.go"
+      ]
+    },
+    {
+      "title": "Add a carrier to the registry",
+      "story": "A planner records a carrier under its SCAC code. The registry is optional: a carrier that is not in it can still book. Changing its details later raises the same event again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock planner"
+      },
+      "command": {
+        "name": "RegisterCarrier",
+        "operationId": "registerCarrier"
+      },
+      "aggregate": "Carrier",
+      "events": [
+        "CarrierRegistered"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "keeps a copy of the carrier registry"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/carriers.go",
+        "internal/domain/carrier/carrier.go",
+        "docs/adr/0012-carrier-registry.md"
+      ]
+    },
+    {
+      "title": "Suspend a carrier",
+      "story": "A planner suspends a carrier. Bookings and moves that name it are refused until it is reinstated. Appointments it already has stay as they are.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock planner"
+      },
+      "command": {
+        "name": "SuspendCarrier",
+        "operationId": "suspendCarrier"
+      },
+      "aggregate": "Carrier",
+      "events": [
+        "CarrierSuspended"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "keeps the carrier's suspended status in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/carriers.go",
+        "internal/domain/carrier/carrier.go",
+        "docs/adr/0012-carrier-registry.md"
+      ]
+    },
+    {
+      "title": "Reinstate a suspended carrier",
+      "story": "A planner lets a suspended carrier book again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock planner"
+      },
+      "command": {
+        "name": "ReinstateCarrier",
+        "operationId": "reinstateCarrier"
+      },
+      "aggregate": "Carrier",
+      "events": [
+        "CarrierReinstated"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "keeps the carrier's active status in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/carriers.go",
+        "internal/domain/carrier/carrier.go",
+        "docs/adr/0012-carrier-registry.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Pickups from cut-offs are not built. The cut-off schedule is stored, but no outbound appointment is created, and the door rule and lead time are undefined.",
+      "evidence": "docs/adr/0002-aggregates-invariants-and-assumptions.md"
+    },
+    {
+      "text": "A retired door blocks new bookings only. Appointments already on it are left untouched.",
+      "evidence": "docs/adr/0002-aggregates-invariants-and-assumptions.md"
+    },
+    {
+      "text": "Appointment facts do not yet say whether an agent made the change. Only carrier facts carry that attribution so far.",
+      "evidence": "docs/adr/0012-carrier-registry.md"
+    },
+    {
+      "text": "The carrier registry is opt-in: a carrier that was never registered can still book. Only a suspended one is refused.",
+      "evidence": "docs/adr/0012-carrier-registry.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A strict mode, where a named carrier must be registered to book, is a future per-site setting. It needs the registry populated first.",
+      "evidence": "docs/adr/0012-carrier-registry.md"
+    },
+    {
+      "text": "A carrier-connectivity context could translate these facts into partner formats. The ADR leaves that decision pending with the owner.",
+      "evidence": "docs/adr/0013-standard-vocabulary-on-published-facts.md"
+    }
+  ]
+}

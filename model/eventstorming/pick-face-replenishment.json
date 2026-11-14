@@ -1,0 +1,320 @@
+{
+  "context": "pick-face-replenishment",
+  "oneLine": "Watches forward pick faces against a min/max rule and asks for stock to be moved from the fullest reserve bin, then closes the request when the move is recorded.",
+  "pivotal": [
+    "ReplenishmentRequested",
+    "ReplenishmentCompleted",
+    "ReplenishmentCancelled"
+  ],
+  "rows": [
+    {
+      "title": "Declare a min/max rule for a pick face",
+      "story": "A planner sets the minimum, maximum and case multiple for one SKU at one site. Changing a rule needs the version the planner last saw.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Pack levels"
+      ],
+      "command": {
+        "name": "DeclarePolicy",
+        "operationId": "declarePolicy"
+      },
+      "aggregate": "Policy",
+      "events": [
+        "ReplenishmentPolicyDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/declare_policy.go",
+        "internal/domain/policy/policy.go"
+      ]
+    },
+    {
+      "title": "Ask for stock when a face runs low",
+      "story": "inventory-storage reports a new bin level. If the pick face of that SKU is now at or below its minimum, a request is raised to move stock from the fullest reserve bin.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "BinStockLevelChanged"
+      },
+      "policy": "Whenever a bin level changes, keep it and re-check that SKU's pick face",
+      "reads": [
+        "Policies",
+        "Reserve bins",
+        "Forward assignments"
+      ],
+      "updates": [
+        "Bin stock levels"
+      ],
+      "command": {
+        "name": "ApplyBinLevel",
+        "via": "policy"
+      },
+      "aggregate": "Request",
+      "events": [
+        "ReplenishmentRequested"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "plans one REPLENISH work unit for the request"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_bin_level.go",
+        "internal/application/usecases/evaluator.go",
+        "internal/domain/detection/detector.go",
+        "internal/domain/replenishment/request.go",
+        "internal/adapters/inbound/kafka/inventory_consumer.go"
+      ]
+    },
+    {
+      "title": "Close the request when the stock has moved",
+      "story": "inventory-storage records a relocation tagged as replenishment. If it matches an open request, the request is completed with the quantity actually moved.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "StockRelocated"
+      },
+      "policy": "Whenever a replenishment move is recorded for an open request, complete that request",
+      "command": {
+        "name": "ApplyRelocation",
+        "via": "policy"
+      },
+      "aggregate": "Request",
+      "events": [
+        "ReplenishmentCompleted"
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_relocation.go",
+        "internal/domain/replenishment/request.go",
+        "internal/adapters/inbound/kafka/inventory_consumer.go"
+      ]
+    },
+    {
+      "title": "Check a whole site by hand",
+      "story": "A planner re-runs detection for every pick face of a site. Faces that already have an open request are left alone, so running it twice raises nothing new.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Policies",
+        "Bin stock levels"
+      ],
+      "command": {
+        "name": "EvaluateSite",
+        "operationId": "evaluateSite"
+      },
+      "aggregate": "Request",
+      "events": [
+        "ReplenishmentRequested"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "plans one REPLENISH work unit for the request"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/evaluate_site.go",
+        "internal/application/usecases/evaluator.go"
+      ]
+    },
+    {
+      "title": "Ask for a replenishment by hand",
+      "story": "A planner raises a request for one SKU, optionally with a quantity. It is refused if there is no pick face, no rule or no source stock, or if a request is already open.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Policies",
+        "Bin stock levels"
+      ],
+      "command": {
+        "name": "RaiseManualRequest",
+        "operationId": "requestReplenishment"
+      },
+      "aggregate": "Request",
+      "events": [
+        "ReplenishmentRequested"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "plans one REPLENISH work unit for the request"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/raise_manual_request.go",
+        "internal/domain/replenishment/request.go"
+      ]
+    },
+    {
+      "title": "Follow the case size from product-master",
+      "story": "A rule can take its multiple from the SKU's case size instead of a typed number. When the case size changes, such rules get a new multiple. A retired case size flags them stale.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductPackLevelDeclared"
+      },
+      "policy": "Whenever a case size is declared, keep it and re-derive the multiple of rules that follow it",
+      "updates": [
+        "Pack levels"
+      ],
+      "command": {
+        "name": "ApplyPackLevelDeclared",
+        "via": "policy"
+      },
+      "aggregate": "Policy",
+      "events": [
+        "ReplenishmentPolicyDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/pack_level.go",
+        "internal/adapters/inbound/kafka/productmaster_consumer.go",
+        "docs/adr/0009-pack-derived-replenishment-multiple.md"
+      ]
+    },
+    {
+      "title": "Follow the approved slot plan",
+      "story": "slotting-optimization approves a new forward map. Requests whose face no longer holds that SKU are cancelled, and new or moved faces are checked for stock.",
+      "trigger": {
+        "kind": "external",
+        "system": "slotting-optimization",
+        "event": "SlotPlanApproved"
+      },
+      "policy": "Whenever a newer slot plan is approved, replace the forward map and cancel requests it drops",
+      "updates": [
+        "Forward assignments"
+      ],
+      "command": {
+        "name": "ApplyForwardAssignmentMap",
+        "via": "policy"
+      },
+      "aggregate": "Request",
+      "events": [
+        "ReplenishmentCancelled",
+        "ReplenishmentRequested"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "withdraws REPLENISH work that is still pending"
+        },
+        {
+          "system": "wes-work-planning",
+          "does": "plans one REPLENISH work unit for the request"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_forward_assignments.go",
+        "internal/adapters/inbound/kafka/slotting_consumer.go",
+        "docs/adr/0005-evaluation-semantics-and-persistence.md"
+      ]
+    },
+    {
+      "title": "Keep the layout copy",
+      "story": "facility-layout announces zones and locations, and later retires some. Here a copy tells which bins are pick faces and which are reserve bins.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotRegistered"
+      },
+      "policy": "Whenever a zone or location is registered or decommissioned, update the layout copy",
+      "updates": [
+        "Zones and locations"
+      ],
+      "command": {
+        "name": "ApplyLocationRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_layout.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Cancel a request",
+      "story": "A planner cancels a request that is still open. A completed or cancelled request is final and cannot be cancelled again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "CancelRequest",
+        "operationId": "cancelReplenishment"
+      },
+      "aggregate": "Request",
+      "events": [
+        "ReplenishmentCancelled"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "withdraws REPLENISH work that is still pending"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/cancel_request.go",
+        "internal/domain/replenishment/request.go"
+      ]
+    },
+    {
+      "title": "Remove a rule and its open requests",
+      "story": "A planner removes the rule of a SKU. In the same step every open request for that SKU at the site is cancelled.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "RemovePolicy",
+        "operationId": "removePolicy"
+      },
+      "aggregate": "Request",
+      "events": [
+        "ReplenishmentCancelled"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "withdraws REPLENISH work that is still pending"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/remove_policy.go",
+        "internal/domain/replenishment/request.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A bin never seen reads as level 0, so a face whose level has not arrived yet can get an unnecessary URGENT request.",
+      "evidence": "docs/adr/0005-evaluation-semantics-and-persistence.md"
+    },
+    {
+      "text": "Requests only become floor work if wes-work-planning opts in and the REPLENISH path is seeded; cluster state was not checked.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A partial fill leaves the face below its maximum. The next detection raises a fresh request once the first is closed.",
+      "evidence": "docs/adr/0002-aggregates-and-detection-policy.md"
+    },
+    {
+      "text": "Until a bin changes, its stock level is unknown because inventory-storage has no backfill. Detection then finds no source bin.",
+      "evidence": "docs/docs/ecosystem/integration.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A demand-cover rule (days of cover from demand) is planned as a later policy kind behind the same shape as min/max.",
+      "evidence": "docs/adr/0002-aggregates-and-detection-policy.md"
+    },
+    {
+      "text": "Velocity-derived min/max, multi-SKU faces, reserve-to-reserve consolidation and travel-aware source choice are listed for later ADRs.",
+      "evidence": "docs/adr/0001-pick-face-replenishment-bounded-context.md"
+    }
+  ]
+}

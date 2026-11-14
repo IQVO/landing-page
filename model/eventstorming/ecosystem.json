@@ -1,0 +1,711 @@
+{
+  "title": "One order, end to end",
+  "lede": "Read it like a paper roll: time runs left to right, from setting up the network to a delivered parcel and what can go wrong after it.",
+  "phases": [
+    {
+      "id": "network",
+      "title": "Set up the network",
+      "plain": "Before anything can be sold, the network needs places, products and partners: nodes and lanes, buildings with shelves, a product master, vendors and sellers.",
+      "contexts": [
+        "node-topology",
+        "facility-layout",
+        "product-master",
+        "vendor-connectivity",
+        "seller-inbound"
+      ],
+      "actors": [
+        {
+          "name": "Network-ops planner"
+        },
+        {
+          "name": "Master-data steward"
+        },
+        {
+          "name": "Network partner manager"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "node-topology",
+          "name": "NodeRegistered"
+        },
+        {
+          "ctx": "node-topology",
+          "name": "NodeOperationalProfileDeclared"
+        },
+        {
+          "ctx": "facility-layout",
+          "name": "SiteRegistered"
+        },
+        {
+          "ctx": "facility-layout",
+          "name": "LocationSlotRegistered"
+        },
+        {
+          "ctx": "product-master",
+          "name": "ProductRegistered"
+        },
+        {
+          "ctx": "vendor-connectivity",
+          "name": "VendorOnboarded"
+        },
+        {
+          "ctx": "seller-inbound",
+          "name": "SellerOnboarded"
+        }
+      ],
+      "pivotal": {
+        "ctx": "node-topology",
+        "name": "NodeActivated"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "node-topology",
+          "index": 0
+        },
+        {
+          "ctx": "facility-layout",
+          "index": 0
+        }
+      ],
+      "opportunities": []
+    },
+    {
+      "id": "supply",
+      "title": "Bring supply in",
+      "plain": "Stock is announced, a dock door is booked, the truck arrives at the gate, and dock staff count what is on it until the receipt is closed.",
+      "contexts": [
+        "seller-inbound",
+        "vendor-connectivity",
+        "dock-scheduling",
+        "yard-management",
+        "inbound-receiving"
+      ],
+      "actors": [
+        {
+          "name": "Seller"
+        },
+        {
+          "name": "Carrier scheduler"
+        },
+        {
+          "name": "Gate clerk"
+        },
+        {
+          "name": "Dock staff"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "seller-inbound",
+          "name": "InboundPlanConfirmed"
+        },
+        {
+          "ctx": "vendor-connectivity",
+          "name": "PurchaseOrderIssued"
+        },
+        {
+          "ctx": "inbound-receiving",
+          "name": "ASNRegistered"
+        },
+        {
+          "ctx": "dock-scheduling",
+          "name": "DockAppointmentBooked"
+        },
+        {
+          "ctx": "yard-management",
+          "name": "VisitCheckedIn"
+        },
+        {
+          "ctx": "yard-management",
+          "name": "TrailerDocked"
+        },
+        {
+          "ctx": "inbound-receiving",
+          "name": "ReceiptOpened"
+        },
+        {
+          "ctx": "inbound-receiving",
+          "name": "ReceiptLineReceived"
+        }
+      ],
+      "pivotal": {
+        "ctx": "inbound-receiving",
+        "name": "ReceiptClosed"
+      },
+      "systems": [
+        {
+          "name": "Vendor system",
+          "outside": true
+        }
+      ],
+      "hotspots": [
+        {
+          "ctx": "inbound-receiving",
+          "index": 1
+        },
+        {
+          "ctx": "vendor-connectivity",
+          "index": 0
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "inbound-receiving",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "title": "Store it and keep it pickable",
+      "plain": "Received units are stowed on a shelf, the slotting plan decides what belongs near the pick faces, and replenishment keeps those faces full.",
+      "contexts": [
+        "inventory-storage",
+        "slotting-optimization",
+        "pick-face-replenishment"
+      ],
+      "actors": [
+        {
+          "name": "Inventory control"
+        },
+        {
+          "name": "Planner"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "inventory-storage",
+          "name": "StockReceived"
+        },
+        {
+          "ctx": "inventory-storage",
+          "name": "ContainerStowed"
+        },
+        {
+          "ctx": "slotting-optimization",
+          "name": "SlotPlanGenerated"
+        },
+        {
+          "ctx": "slotting-optimization",
+          "name": "SlotPlanApproved"
+        },
+        {
+          "ctx": "pick-face-replenishment",
+          "name": "ReplenishmentRequested"
+        },
+        {
+          "ctx": "pick-face-replenishment",
+          "name": "ReplenishmentCompleted"
+        }
+      ],
+      "pivotal": {
+        "ctx": "inventory-storage",
+        "name": "ItemStowed"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "inventory-storage",
+          "index": 3
+        },
+        {
+          "ctx": "pick-face-replenishment",
+          "index": 3
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "inventory-storage",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "id": "offer",
+      "title": "Offer it to shoppers",
+      "plain": "What the network can sell is listed with content and a price, and its availability follows the stock that is really there.",
+      "contexts": [
+        "offer-availability",
+        "product-content",
+        "pricing",
+        "product-discovery"
+      ],
+      "actors": [
+        {
+          "name": "Content manager"
+        },
+        {
+          "name": "Merchandiser"
+        },
+        {
+          "name": "Network merchandising"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "offer-availability",
+          "name": "CatalogItemCreated"
+        },
+        {
+          "ctx": "product-content",
+          "name": "ProductContentPublished"
+        },
+        {
+          "ctx": "pricing",
+          "name": "ItemPriceChanged"
+        },
+        {
+          "ctx": "offer-availability",
+          "name": "ListingCreated"
+        },
+        {
+          "ctx": "offer-availability",
+          "name": "InventoryFeedApplied"
+        }
+      ],
+      "pivotal": {
+        "ctx": "offer-availability",
+        "name": "ListingAvailabilityChanged"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "offer-availability",
+          "index": 1
+        },
+        {
+          "ctx": "pricing",
+          "index": 1
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "pricing",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "shop",
+      "title": "Shop, promise and pay",
+      "plain": "A shopper fills a cart, sees delivery offers backed by a promise, checks out and pays. The phase ends when the order is placed.",
+      "contexts": [
+        "shopping-cart",
+        "delivery-promise",
+        "checkout",
+        "customer-payments",
+        "customer-ordering"
+      ],
+      "actors": [
+        {
+          "name": "Shopper"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "shopping-cart",
+          "name": "CartLineAdded"
+        },
+        {
+          "ctx": "delivery-promise",
+          "name": "DeliveryOfferQuoted"
+        },
+        {
+          "ctx": "shopping-cart",
+          "name": "CartDeliveryQuoted"
+        },
+        {
+          "ctx": "checkout",
+          "name": "CheckoutOpened"
+        },
+        {
+          "ctx": "customer-payments",
+          "name": "PaymentAuthorized"
+        },
+        {
+          "ctx": "customer-ordering",
+          "name": "CustomerOrderPlaced"
+        },
+        {
+          "ctx": "delivery-promise",
+          "name": "PromiseConfirmed"
+        }
+      ],
+      "pivotal": {
+        "ctx": "checkout",
+        "name": "CheckoutCompleted"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "checkout",
+          "index": 1
+        },
+        {
+          "ctx": "customer-ordering",
+          "index": 0
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "customer-ordering",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "source",
+      "title": "Source the order and hand it to a warehouse",
+      "plain": "The network decides which node serves each order line, then hands it over. The warehouse receives it, allocates stock to it and releases it.",
+      "contexts": [
+        "order-sourcing",
+        "network-fulfillment",
+        "order-management",
+        "network-inventory-planning"
+      ],
+      "actors": [
+        {
+          "name": "Network-ops planner"
+        },
+        {
+          "name": "Operator"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "order-sourcing",
+          "name": "FulfillmentSourcingDecided"
+        },
+        {
+          "ctx": "order-sourcing",
+          "name": "FulfillmentReleasedToNode"
+        },
+        {
+          "ctx": "network-fulfillment",
+          "name": "NetworkOrderReceived"
+        },
+        {
+          "ctx": "network-fulfillment",
+          "name": "NetworkOrderAcknowledged"
+        },
+        {
+          "ctx": "order-management",
+          "name": "OrderReceived"
+        },
+        {
+          "ctx": "order-management",
+          "name": "OrderAllocated"
+        }
+      ],
+      "pivotal": {
+        "ctx": "order-management",
+        "name": "OrderReleased"
+      },
+      "systems": [
+        {
+          "name": "Retail network",
+          "outside": true
+        }
+      ],
+      "hotspots": [
+        {
+          "ctx": "order-sourcing",
+          "index": 2
+        },
+        {
+          "ctx": "network-fulfillment",
+          "index": 1
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "network-fulfillment",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "plan",
+      "title": "Plan and release the work",
+      "plain": "Capacity, shifts and process paths decide how much work the building can take. Work is then released to the floor, never in waves, but as capacity allows.",
+      "contexts": [
+        "warehouse-planning",
+        "workforce-management",
+        "process-path-management",
+        "wes-work-planning",
+        "labor-performance"
+      ],
+      "actors": [
+        {
+          "name": "Planner"
+        },
+        {
+          "name": "Shift lead"
+        },
+        {
+          "name": "Industrial engineer"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "process-path-management",
+          "name": "ProcessPathCreated"
+        },
+        {
+          "ctx": "labor-performance",
+          "name": "LaborStandardDefined"
+        },
+        {
+          "ctx": "warehouse-planning",
+          "name": "CapacityPlanPublished"
+        },
+        {
+          "ctx": "workforce-management",
+          "name": "ShiftPlanCommitted"
+        },
+        {
+          "ctx": "wes-work-planning",
+          "name": "ChargeForecastReceived"
+        },
+        {
+          "ctx": "wes-work-planning",
+          "name": "WorkUnitCreated"
+        }
+      ],
+      "pivotal": {
+        "ctx": "wes-work-planning",
+        "name": "WorkReleased"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "warehouse-planning",
+          "index": 1
+        },
+        {
+          "ctx": "wes-work-planning",
+          "index": 1
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "warehouse-planning",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "pick",
+      "title": "Pick, pack and ship",
+      "plain": "Tasks appear, associates claim them, units are picked and packed, a load is built and closed, and the shipment leaves the dock.",
+      "contexts": [
+        "fulfillment-execution",
+        "task-interleaving",
+        "outbound-shipping"
+      ],
+      "actors": [
+        {
+          "name": "Dock operator"
+        },
+        {
+          "name": "Dock supervisor"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "fulfillment-execution",
+          "name": "TaskAvailable"
+        },
+        {
+          "ctx": "fulfillment-execution",
+          "name": "TaskClaimed"
+        },
+        {
+          "ctx": "fulfillment-execution",
+          "name": "ItemPicked"
+        },
+        {
+          "ctx": "fulfillment-execution",
+          "name": "PackageSealed"
+        },
+        {
+          "ctx": "outbound-shipping",
+          "name": "LoadPlanned"
+        },
+        {
+          "ctx": "outbound-shipping",
+          "name": "PackageLoaded"
+        },
+        {
+          "ctx": "outbound-shipping",
+          "name": "LoadClosed"
+        }
+      ],
+      "pivotal": {
+        "ctx": "outbound-shipping",
+        "name": "ShipmentConfirmed"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "fulfillment-execution",
+          "index": 1
+        },
+        {
+          "ctx": "outbound-shipping",
+          "index": 0
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "fulfillment-execution",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "deliver",
+      "title": "Move the parcel and deliver",
+      "plain": "A label is issued, the load travels between nodes on a scheduled departure, a last-mile wave takes it out for delivery, and the promise is kept or broken.",
+      "contexts": [
+        "shipping-and-tracking",
+        "linehaul-transportation",
+        "last-mile-delivery",
+        "node-performance"
+      ],
+      "actors": [
+        {
+          "name": "Station planner"
+        },
+        {
+          "name": "Driver"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "shipping-and-tracking",
+          "name": "LabelIssued"
+        },
+        {
+          "ctx": "linehaul-transportation",
+          "name": "DepartureScheduled"
+        },
+        {
+          "ctx": "linehaul-transportation",
+          "name": "LoadDeparted"
+        },
+        {
+          "ctx": "linehaul-transportation",
+          "name": "LoadArrived"
+        },
+        {
+          "ctx": "last-mile-delivery",
+          "name": "PackageOutForDelivery"
+        },
+        {
+          "ctx": "delivery-promise",
+          "name": "PromiseKept"
+        },
+        {
+          "ctx": "customer-payments",
+          "name": "PaymentCaptured"
+        },
+        {
+          "ctx": "node-performance",
+          "name": "NodeScorecardUpdated"
+        }
+      ],
+      "pivotal": {
+        "ctx": "shipping-and-tracking",
+        "name": "PackageDelivered"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "last-mile-delivery",
+          "index": 0
+        },
+        {
+          "ctx": "linehaul-transportation",
+          "index": 0
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "delivery-promise",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "after",
+      "title": "When things go wrong, and after the sale",
+      "plain": "Exceptions are opened, triaged and resolved. A return is authorized, inspected and given a disposition, and the shopper is refunded.",
+      "contexts": [
+        "exception-management",
+        "returns-processing"
+      ],
+      "actors": [
+        {
+          "name": "Operator"
+        },
+        {
+          "name": "Inspector"
+        }
+      ],
+      "events": [
+        {
+          "ctx": "exception-management",
+          "name": "ExceptionOpened"
+        },
+        {
+          "ctx": "exception-management",
+          "name": "ExceptionResolved"
+        },
+        {
+          "ctx": "returns-processing",
+          "name": "ReturnAuthorized"
+        },
+        {
+          "ctx": "returns-processing",
+          "name": "ReturnReceiptOpened"
+        },
+        {
+          "ctx": "returns-processing",
+          "name": "ReturnLineInspected"
+        },
+        {
+          "ctx": "customer-payments",
+          "name": "RefundIssued"
+        }
+      ],
+      "pivotal": {
+        "ctx": "returns-processing",
+        "name": "DispositionDecided"
+      },
+      "systems": [],
+      "hotspots": [
+        {
+          "ctx": "exception-management",
+          "index": 2
+        },
+        {
+          "ctx": "returns-processing",
+          "index": 3
+        },
+        {
+          "ctx": "customer-payments",
+          "index": 2
+        }
+      ],
+      "opportunities": [
+        {
+          "ctx": "returns-processing",
+          "index": 1
+        }
+      ]
+    }
+  ]
+}

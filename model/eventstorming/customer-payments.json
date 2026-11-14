@@ -1,0 +1,365 @@
+{
+  "context": "customer-payments",
+  "oneLine": "Holds the shopper's money: authorizes the total at checkout, captures it as groups ship, releases it on cancellation and refunds lost or returned packages.",
+  "pivotal": [
+    "PaymentAuthorized",
+    "PaymentCaptured",
+    "PaymentReleased",
+    "RefundIssued"
+  ],
+  "rows": [
+    {
+      "title": "Authorize a payment",
+      "story": "Checkout asks for the quote total to be held on the shopper's payment method, split by shipment group. The payment provider's answer decides: held or declined. A session that already has a live hold gets it back unchanged.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Checkout, for a shopper"
+      },
+      "reads": [
+        "Payment provider's answer"
+      ],
+      "command": {
+        "name": "AuthorizePayment",
+        "operationId": "authorizePayment"
+      },
+      "aggregate": "PaymentAuthorization",
+      "events": [
+        "PaymentAuthorized",
+        "PaymentDeclined"
+      ],
+      "evidence": [
+        "internal/application/usecases/authorization.go",
+        "internal/domain/paymentauthorization/create.go"
+      ]
+    },
+    {
+      "title": "Cancel a hold that was never captured",
+      "story": "Checkout cancels a hold before anything has been captured. The payment provider voids it and every amount still waiting is released.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Checkout, for a shopper"
+      },
+      "reads": [
+        "Payment provider's answer"
+      ],
+      "command": {
+        "name": "VoidAuthorization",
+        "operationId": "voidPaymentAuthorization"
+      },
+      "aggregate": "PaymentAuthorization",
+      "events": [
+        "PaymentReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/authorization.go",
+        "internal/domain/paymentauthorization/commands.go"
+      ]
+    },
+    {
+      "title": "Tie the hold to the order",
+      "story": "checkout reports that the order was placed. The order is attached to the hold, and any shipping or tracking news that arrived before the order was known is now applied.",
+      "trigger": {
+        "kind": "external",
+        "system": "checkout",
+        "event": "CheckoutCompleted"
+      },
+      "policy": "Whenever a checkout completes, bind its order to the hold and apply the facts that waited",
+      "reads": [
+        "Facts waiting for their order"
+      ],
+      "command": {
+        "name": "BindOrder",
+        "via": "policy"
+      },
+      "aggregate": "PaymentAuthorization",
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/domain/paymentauthorization/commands.go",
+        "internal/adapters/inbound/kafka/handlers.go"
+      ]
+    },
+    {
+      "title": "Take the money when a group ships",
+      "story": "order-sourcing says a shipment group has shipped. Its share of the hold is captured at the payment provider and the tracking numbers are kept. If the order is not tied yet, the news waits.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentShipped"
+      },
+      "policy": "Whenever a group ships, capture its share of the hold",
+      "updates": [
+        "Facts waiting for their order"
+      ],
+      "command": {
+        "name": "CaptureOnShipment",
+        "via": "policy"
+      },
+      "aggregate": "PaymentAuthorization",
+      "events": [
+        "PaymentCaptured"
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/application/usecases/consume.go",
+        "internal/domain/paymentauthorization/commands.go"
+      ]
+    },
+    {
+      "title": "Release the money of a cancelled group",
+      "story": "order-sourcing says a group was cancelled. Its share of the hold is released and the hold at the payment provider shrinks, or is voided when nothing is left.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentCancelled"
+      },
+      "policy": "Whenever a group is cancelled, release its share of the hold",
+      "updates": [
+        "Facts waiting for their order"
+      ],
+      "command": {
+        "name": "ReleaseOnCancellation",
+        "via": "policy"
+      },
+      "aggregate": "PaymentAuthorization",
+      "events": [
+        "PaymentReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/application/usecases/consume.go",
+        "internal/domain/paymentauthorization/commands.go"
+      ]
+    },
+    {
+      "title": "Release the money of a group nobody can fill",
+      "story": "order-sourcing says no source can fulfil a group. It is handled like a cancellation: its share of the hold is released.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentUnsourceable"
+      },
+      "policy": "Whenever a group cannot be sourced, release its share of the hold",
+      "updates": [
+        "Facts waiting for their order"
+      ],
+      "command": {
+        "name": "ReleaseOnCancellation",
+        "via": "policy"
+      },
+      "aggregate": "PaymentAuthorization",
+      "events": [
+        "PaymentReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/application/usecases/consume.go",
+        "internal/domain/paymentauthorization/commands.go"
+      ]
+    },
+    {
+      "title": "Refund a lost package",
+      "story": "shipping-and-tracking says a package was lost. What was captured for the group that carried it goes back to the shopper, less anything already refunded.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageLost"
+      },
+      "policy": "Whenever a package is lost, refund what was captured for its group",
+      "reads": [
+        "Captured amount of the group"
+      ],
+      "command": {
+        "name": "RefundOnLostPackage",
+        "via": "policy"
+      },
+      "aggregate": "Refund",
+      "events": [
+        "RefundIssued",
+        "RefundFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/application/usecases/refund.go",
+        "internal/domain/refund/refund.go"
+      ]
+    },
+    {
+      "title": "Refund a returned package",
+      "story": "shipping-and-tracking says a package came back to the sender. What was captured for its group is refunded, less anything already refunded.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageReturned"
+      },
+      "policy": "Whenever a package is returned, refund what was captured for its group",
+      "reads": [
+        "Captured amount of the group"
+      ],
+      "command": {
+        "name": "RefundOnReturnToSender",
+        "via": "policy"
+      },
+      "aggregate": "Refund",
+      "events": [
+        "RefundIssued",
+        "RefundFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/facts.go",
+        "internal/application/usecases/refund.go",
+        "internal/domain/refund/refund.go"
+      ]
+    },
+    {
+      "title": "Refund by hand",
+      "story": "Operations request a refund for an order or one of its groups. It can never exceed what was captured. The payment provider is asked once; if it is unreachable the refund waits.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Storefront operations"
+      },
+      "reads": [
+        "Captured amount of the order"
+      ],
+      "command": {
+        "name": "RequestRefund",
+        "operationId": "requestRefund"
+      },
+      "aggregate": "Refund",
+      "events": [
+        "RefundIssued",
+        "RefundFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/refund.go",
+        "internal/domain/refund/refund.go"
+      ]
+    },
+    {
+      "title": "Try a failed refund again",
+      "story": "Operations send a failed refund back to the payment provider. A refund gets at most five attempts in all.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Storefront operations"
+      },
+      "command": {
+        "name": "RetryRefund",
+        "operationId": "retryRefund"
+      },
+      "aggregate": "Refund",
+      "events": [
+        "RefundIssued",
+        "RefundFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/refund.go",
+        "internal/domain/refund/commands.go"
+      ]
+    },
+    {
+      "title": "Finish refunds left waiting",
+      "story": "A sweep picks up refunds that sat requested for 30 seconds because the payment provider could not be reached, and asks the provider again.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Refund sweep"
+      },
+      "policy": "Every sweep, any refund requested for over 30 seconds is sent to the provider again",
+      "command": {
+        "name": "ProcessRequestedRefunds",
+        "via": "timer"
+      },
+      "aggregate": "Refund",
+      "events": [
+        "RefundIssued",
+        "RefundFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/refund.go",
+        "cmd/api/policies.go"
+      ]
+    },
+    {
+      "title": "Renew a hold before it lapses",
+      "story": "A sweep asks the payment provider for a fresh hold 24 hours before the old one ends. If the provider declines, or the hold already lapsed, the authorization expires and what was still waiting is released.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Hold sweep"
+      },
+      "policy": "Every sweep, a hold within 24 hours of its end is renewed or, failing that, expired",
+      "command": {
+        "name": "ReauthorizeBeforeExpiry",
+        "via": "timer"
+      },
+      "aggregate": "PaymentAuthorization",
+      "events": [
+        "PaymentReauthorized",
+        "PaymentAuthorizationExpired",
+        "PaymentDeclined",
+        "PaymentReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/domain/paymentauthorization/commands.go",
+        "cmd/api/policies.go"
+      ]
+    },
+    {
+      "title": "Void holds nobody claimed",
+      "story": "A hold that no completed checkout tied to an order within 24 hours is voided. It is the safety net behind checkout's own give-up.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Unclaimed-hold sweep"
+      },
+      "policy": "Every sweep, a hold with no order after 24 hours is voided",
+      "command": {
+        "name": "VoidUnboundAuthorizations",
+        "via": "timer"
+      },
+      "aggregate": "PaymentAuthorization",
+      "events": [
+        "PaymentReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "cmd/api/policies.go"
+      ]
+    },
+    {
+      "title": "Tidy the facts that never found an order",
+      "story": "Facts still waiting for their order after 24 hours are escalated with an alert and never silently dropped. Facts older than 30 days are deleted.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Housekeeping sweep"
+      },
+      "policy": "Every sweep, escalate facts waiting over 24 hours and purge those older than 30 days",
+      "updates": [
+        "Facts waiting for their order"
+      ],
+      "command": {
+        "name": "MaintainParkedFacts",
+        "via": "timer"
+      },
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/application/parked/parked.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "All eight events are analytics-only. No other context reacts to a payment or refund event.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "No alerting on declines, waiting facts, unpublished events or failed refunds. Only error log lines flag them.",
+      "evidence": "docs/docs/operations/observability.md"
+    },
+    {
+      "text": "A lost package whose shipment news never arrived is never refunded automatically. Its fact waits 24 hours, then is escalated.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A provider outage longer than the 24-hour lead lets a hold lapse. The next pass expires it without asking the provider.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    }
+  ]
+}

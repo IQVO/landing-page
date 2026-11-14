@@ -1,0 +1,302 @@
+{
+  "context": "process-path-management",
+  "oneLine": "Keeps the warehouse's catalogue of process paths and each site's carrier cut-off schedule, and tells the rest of the fleet whenever either changes.",
+  "pivotal": [
+    "ProcessPathCreated",
+    "ProcessPathUpdated",
+    "ProcessPathDeactivated",
+    "CPTScheduleChanged"
+  ],
+  "rows": [
+    {
+      "title": "Define a new process path",
+      "story": "An operator adds a path to the catalogue: its name prefix, the skills it needs, its p95 cycle time and which demand sources may feed it. A path id is never reused, even after retirement.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DefinePath",
+        "operationId": "definePath"
+      },
+      "aggregate": "ProcessPath",
+      "events": [
+        "ProcessPathCreated"
+      ],
+      "then": [
+        {
+          "system": "fulfillment-execution",
+          "does": "adds the path to its catalogue copy, so released work for it is accepted and gets its required skills"
+        },
+        {
+          "system": "wes-work-planning",
+          "does": "adds the path to its catalogue copy, so work can be planned onto it"
+        },
+        {
+          "system": "workforce-management",
+          "does": "adds the path to its catalogue copy, so shift plans and assignments can name it"
+        },
+        {
+          "system": "order-management",
+          "does": "adds the path, with its cycle time and eligibility, to the copy it uses to route orders"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "adds the path's cycle time to the copy it uses for capacity figures"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/define_path.go",
+        "internal/domain/processpath/process_path.go",
+        "internal/domain/shared/events.go"
+      ]
+    },
+    {
+      "title": "Revise a process path",
+      "story": "An operator changes an active path's prefix, skills, cycle time, eligibility or intake. If nothing actually changed, nothing is announced. The full new definition is sent, never a diff.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RevisePath",
+        "operationId": "revisePath"
+      },
+      "aggregate": "ProcessPath",
+      "events": [
+        "ProcessPathUpdated"
+      ],
+      "then": [
+        {
+          "system": "fulfillment-execution",
+          "does": "replaces its copy of the path definition"
+        },
+        {
+          "system": "wes-work-planning",
+          "does": "replaces its copy of the path definition"
+        },
+        {
+          "system": "workforce-management",
+          "does": "replaces its copy of the path definition"
+        },
+        {
+          "system": "order-management",
+          "does": "replaces its copy, so the next delivery promise uses the new cycle time and eligibility"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "replaces the cycle time it uses for capacity figures"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/revise_path.go",
+        "internal/domain/processpath/process_path.go"
+      ]
+    },
+    {
+      "title": "Retire a process path",
+      "story": "An operator retires a path for good. It is refused while any site's cut-off schedule still lists the path, so the operator revises those schedules first.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Sites whose schedule lists the path"
+      ],
+      "command": {
+        "name": "DeactivatePath",
+        "operationId": "deactivatePath"
+      },
+      "aggregate": "ProcessPath",
+      "events": [
+        "ProcessPathDeactivated"
+      ],
+      "then": [
+        {
+          "system": "fulfillment-execution",
+          "does": "removes the path from its catalogue copy"
+        },
+        {
+          "system": "wes-work-planning",
+          "does": "removes the path from its catalogue copy"
+        },
+        {
+          "system": "workforce-management",
+          "does": "removes the path from its catalogue copy"
+        },
+        {
+          "system": "order-management",
+          "does": "removes the path from its copy, so no order is routed onto it"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "removes the path from its capacity copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/deactivate_path.go",
+        "internal/domain/processpath/process_path.go",
+        "docs/docs/adr/0026-reject-deactivation-of-paths-in-cpt-schedules.md",
+        "docs/docs/adr/0028-close-path-cpt-schedule-race-with-row-locks.md"
+      ]
+    },
+    {
+      "title": "Publish a site's cut-off schedule",
+      "story": "An operator sets, or replaces in full, a site's carrier cut-off times. Every path a cut-off lists must be active. An identical schedule changes nothing and announces nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Active process paths"
+      ],
+      "command": {
+        "name": "DefineCPTSchedule",
+        "operationId": "defineCPTSchedule"
+      },
+      "aggregate": "CPTSchedule",
+      "events": [
+        "CPTScheduleChanged"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "replaces the site's cut-off windows it uses to promise delivery times"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "replaces the site's cut-offs it uses for capacity figures"
+        },
+        {
+          "system": "outbound-shipping",
+          "does": "replaces its copy of the site's cut-off schedule"
+        },
+        {
+          "system": "dock-scheduling",
+          "does": "stores the site's cut-offs as a view; it books no appointment from them yet"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/cpt_schedule.go",
+        "internal/domain/cptschedule/cpt_schedule.go",
+        "internal/domain/cptschedule/events.go"
+      ]
+    },
+    {
+      "title": "Replay every active path at start-up",
+      "story": "When the service starts, it announces the current definition of each active path again. This way a consumer that rebuilds its catalogue from scratch never misses a path whose first event has aged out.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Service start"
+      },
+      "policy": "Whenever the service starts, announce every active path again",
+      "command": {
+        "name": "RepublishCatalogue",
+        "via": "job"
+      },
+      "aggregate": "ProcessPath",
+      "events": [
+        "ProcessPathUpdated"
+      ],
+      "then": [
+        {
+          "system": "fulfillment-execution",
+          "does": "a fresh instance rebuilds its catalogue copy from the replay"
+        },
+        {
+          "system": "wes-work-planning",
+          "does": "a fresh instance rebuilds its catalogue copy from the replay"
+        },
+        {
+          "system": "workforce-management",
+          "does": "a fresh instance rebuilds its catalogue copy from the replay"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/republish_catalogue.go",
+        "cmd/pathmgmt/republish.go",
+        "docs/docs/adr/0038-republish-catalogue-on-start.md"
+      ]
+    },
+    {
+      "title": "Replay every site's schedule at start-up",
+      "story": "In the same start-up pass, the current cut-off schedule of each site is announced again, in full, for the same reason: a fresh consumer must be able to rebuild its copy.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Service start"
+      },
+      "policy": "Whenever the service starts, announce every site's schedule again",
+      "command": {
+        "name": "RepublishCatalogue",
+        "via": "job"
+      },
+      "aggregate": "CPTSchedule",
+      "events": [
+        "CPTScheduleChanged"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "a fresh instance rebuilds its cut-off copy from the replay"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "a fresh instance rebuilds its cut-off copy from the replay"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/republish_catalogue.go",
+        "cmd/pathmgmt/republish.go",
+        "docs/docs/adr/0038-republish-catalogue-on-start.md"
+      ]
+    },
+    {
+      "title": "Count catalogue growth for reports",
+      "story": "The service reads its own path announcements and keeps a daily tally of paths defined, revised and retired, which feeds the catalogue growth report. It never reads another context's events.",
+      "trigger": {
+        "kind": "event",
+        "event": "ProcessPathCreated"
+      },
+      "policy": "Whenever a path is created, revised or retired, add one to that day's tally",
+      "updates": [
+        "Catalogue growth report"
+      ],
+      "command": {
+        "name": "ApplyProcessPathCreated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "docs/docs/adr/0007-analytical-data-product.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "The site id of a cut-off schedule is never checked. A schedule for an unknown site only shows up later as an unroutable order in order-management.",
+      "evidence": "docs/docs/adr/0010-fulfillment-capability-contract.md"
+    },
+    {
+      "text": "ICQA (inventory control) is deliberately left undecided: it may become a path family, stay in inventory-storage, or call into it.",
+      "evidence": "docs/docs/adr/0008-fclm-aligned-process-path-families.md"
+    },
+    {
+      "text": "wes-work-planning and network-inventory-planning do not yet filter on the declared intake values; they route by explicit path id.",
+      "evidence": "docs/docs/adr/0034-process-path-intake.md"
+    },
+    {
+      "text": "How long announcements are kept is not set here. Consumers rebuild their copy by replaying them all, so the start-up replay is the safety net.",
+      "evidence": "docs/docs/adr/0038-republish-catalogue-on-start.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Log compaction would let the broker keep only the latest announcement per path and per site. It is a warehouse-infra change.",
+      "evidence": "docs/docs/adr/0038-republish-catalogue-on-start.md"
+    },
+    {
+      "text": "If the fleet gets a real transportation context, the cut-off schedule can move there unchanged. Its place here is provisional.",
+      "evidence": "docs/docs/adr/0010-fulfillment-capability-contract.md"
+    }
+  ]
+}

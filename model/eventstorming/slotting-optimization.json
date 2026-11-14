@@ -1,0 +1,307 @@
+{
+  "context": "slotting-optimization",
+  "oneLine": "Proposes which SKU belongs in which forward pick slot, from recent demand. A planner reviews each plan; only an approved plan changes the map.",
+  "pivotal": [
+    "SlotPlanGenerated",
+    "SlotPlanApproved",
+    "SlotPlanRejected"
+  ],
+  "rows": [
+    {
+      "title": "Draft a slot plan",
+      "story": "A planner asks for a plan. SKUs are ranked by recent picks, and each gets the best slot it fits. The plan lists the moves and the SKUs it could not place. Nothing on the floor changes yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "policy": "Rank SKUs by picks, keep a SKU in its slot when still eligible, give the rest the best free slot",
+      "reads": [
+        "SKU velocity",
+        "Product copy",
+        "Slot copy",
+        "Current forward-slot map"
+      ],
+      "command": {
+        "name": "GeneratePlan",
+        "operationId": "generateSlotPlan"
+      },
+      "aggregate": "SlotPlan",
+      "events": [
+        "SlotPlanGenerated"
+      ],
+      "evidence": [
+        "internal/application/usecases/generate_plan.go",
+        "internal/domain/slotplan/plan.go",
+        "internal/domain/planning/planner.go"
+      ]
+    },
+    {
+      "title": "Approve a plan",
+      "story": "The planner approves a Draft plan. The site's earlier approved plan is replaced in the same step, so each site has one. The event carries the whole map and every move, so nobody has to ask back.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "ApprovePlan",
+        "operationId": "approveSlotPlan"
+      },
+      "aggregate": "SlotPlan",
+      "events": [
+        "SlotPlanApproved"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "plans one relocation job for each move of the plan"
+        },
+        {
+          "system": "inventory-storage",
+          "does": "updates its own view of the forward faces"
+        },
+        {
+          "system": "pick-face-replenishment",
+          "does": "replaces its map of which SKU sits on which forward face"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/decide_plan.go",
+        "internal/domain/slotplan/plan.go"
+      ]
+    },
+    {
+      "title": "Reject a plan",
+      "story": "The planner turns a Draft plan down, with an optional reason. The forward-slot map stays as it was.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "RejectPlan",
+        "operationId": "rejectSlotPlan"
+      },
+      "aggregate": "SlotPlan",
+      "events": [
+        "SlotPlanRejected"
+      ],
+      "evidence": [
+        "internal/application/usecases/decide_plan.go",
+        "internal/domain/slotplan/plan.go"
+      ]
+    },
+    {
+      "title": "Keep the demand copy",
+      "story": "order-management reports what each site's order lines demand. The latest report for a line wins, and a removed line stays on file as inactive.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-management",
+        "event": "SiteSkuDemandChanged"
+      },
+      "policy": "Whenever demand for a line changes, store the latest state of that line",
+      "updates": [
+        "Demand copy"
+      ],
+      "command": {
+        "name": "ApplyDemandChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/demand_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the handling class copy",
+      "story": "product-master classifies SKUs. Slotting keeps the handling tags and temperature class, so hazmat and cold goods only go to slots that suit them.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductClassified"
+      },
+      "policy": "Whenever a product is classified, keep the copy only if the version is newer",
+      "updates": [
+        "Product copy"
+      ],
+      "command": {
+        "name": "ApplyProductClassified",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/product_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the unit size copy",
+      "story": "product-master reports a unit's declared or measured size. Slotting keeps the size in use, because a SKU without a size cannot be placed and is listed as unassigned.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductDimensionsDeclared"
+      },
+      "policy": "Whenever a unit size is declared or measured, keep the effective size if the version is newer",
+      "updates": [
+        "Product copy"
+      ],
+      "command": {
+        "name": "ApplyPhysicalProfile",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/product_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the pack level copy",
+      "story": "A SKU is planned onto a case-pick face only if it has an active case level with a size. Slotting keeps the declared, retired and measured pack levels, so it never asks product-master.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductPackLevelDeclared"
+      },
+      "policy": "Whenever a pack level is declared, retired or measured, keep the newer version",
+      "updates": [
+        "Pack levels copy"
+      ],
+      "command": {
+        "name": "ApplyPackLevelDeclared",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/pack_level.go",
+        "internal/adapters/inbound/kafka/packlevel_consumer.go",
+        "docs/adr/0012-case-pick-faces.md"
+      ]
+    },
+    {
+      "title": "Keep the zone list",
+      "story": "facility-layout announces each zone with its temperature class and hazmat flag. Slotting keeps them to know which zones are forward zones and what they can hold.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "ZoneRegistered"
+      },
+      "policy": "Whenever a zone is registered, store or refresh it",
+      "updates": [
+        "Zone copy"
+      ],
+      "command": {
+        "name": "ApplyZoneRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the slot list",
+      "story": "facility-layout announces every location slot with its weight and volume limits. Slotting keeps them, and a slot that was decommissioned is never brought back by a late message.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotRegistered"
+      },
+      "policy": "Whenever a slot is registered, store or refresh it, unless it is already decommissioned",
+      "updates": [
+        "Slot copy"
+      ],
+      "command": {
+        "name": "ApplyLocationSlotRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Drop a decommissioned slot",
+      "story": "When a slot is decommissioned it stops being a candidate for good, even if slotting never saw it registered.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotDecommissioned"
+      },
+      "policy": "Whenever a slot is decommissioned, mark it inactive for good",
+      "updates": [
+        "Slot copy"
+      ],
+      "command": {
+        "name": "ApplyLocationSlotDecommissioned",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Track how far a plan is executed",
+      "story": "inventory-storage reports each stock relocation. When it matches a move of an approved plan, slotting records the move as done, once per relocation. The plan then shows moves done out of total.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "StockRelocated"
+      },
+      "policy": "Whenever stock is relocated for slotting, record the matching plan move as executed",
+      "updates": [
+        "Plan execution progress"
+      ],
+      "command": {
+        "name": "RecordRelocation",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/record_relocation.go",
+        "internal/adapters/inbound/kafka/stock_consumer.go",
+        "internal/domain/slotplan/execution.go"
+      ]
+    },
+    {
+      "title": "Feed the plan funnel report",
+      "story": "Every plan event is also written to a separate stream. A reporting service counts plans generated, approved and rejected per day, and how long approval took.",
+      "trigger": {
+        "kind": "event",
+        "event": "SlotPlanApproved"
+      },
+      "policy": "Whenever a plan decision is published, add it to the funnel report's own copy",
+      "updates": [
+        "Slot plan funnel report"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "docs/adr/0006-analytics-read-side.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Slots are ranked by location code, not travel distance, because layout events carry none. \"Best\" slot means \"first code\".",
+      "evidence": "docs/adr/0002-slotplan-aggregate-and-abc-velocity-policy.md"
+    },
+    {
+      "text": "Never checked on live data: that the forward zone code is FWD and that a demand site id equals a facility site code. If not, plans come out short.",
+      "evidence": "docs/adr/0003-local-copies-and-consumed-contracts.md"
+    },
+    {
+      "text": "Execution progress is advisory. A newer plan can be approved while the previous one is half executed.",
+      "evidence": "docs/adr/0010-approved-slot-plans-are-executed-as-wes-relocation-work.md"
+    },
+    {
+      "text": "A better-ranked SKU can take another SKU's slot and set off a chain of relocations. Accepted for v1 and visible in the moves.",
+      "evidence": "docs/adr/0002-slotplan-aggregate-and-abc-velocity-policy.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Holding new proposals until the previous plan is executed would need a new decision. Not built.",
+      "evidence": "docs/adr/0010-approved-slot-plans-are-executed-as-wes-relocation-work.md"
+    },
+    {
+      "text": "Replenishment min/max, shared slots, reserve-zone slotting and automatic approval are all named as later decisions.",
+      "evidence": "docs/adr/0002-slotplan-aggregate-and-abc-velocity-policy.md"
+    }
+  ]
+}

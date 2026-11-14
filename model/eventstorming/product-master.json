@@ -1,0 +1,341 @@
+{
+  "context": "product-master",
+  "oneLine": "Owns what a SKU is: its description, handling class, unit size and pack levels with their barcodes (GTINs). Other contexts keep copies.",
+  "pivotal": [
+    "ProductRegistered",
+    "ProductClassified",
+    "ProductMeasured",
+    "ProductPackLevelDeclared"
+  ],
+  "rows": [
+    {
+      "title": "Register a product",
+      "story": "A steward registers a new SKU. Nothing else can be said about a SKU until it exists: classifying or sizing an unknown SKU is refused, never an implicit registration.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Master-data steward"
+      },
+      "command": {
+        "name": "RegisterProduct",
+        "operationId": "registerProduct"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductRegistered"
+      ],
+      "then": [
+        {
+          "system": "inbound-receiving",
+          "does": "adds the SKU to its known SKUs, so an ASN line for it is accepted"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/register_product.go",
+        "internal/domain/product/product.go"
+      ]
+    },
+    {
+      "title": "Change a product's description",
+      "story": "The steward sends new text for a SKU that already exists. The same text again changes nothing and raises no event.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Master-data steward"
+      },
+      "command": {
+        "name": "RegisterProduct",
+        "operationId": "registerProduct"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductDescriptionChanged"
+      ],
+      "evidence": [
+        "internal/application/usecases/register_product.go",
+        "internal/domain/product/product.go"
+      ]
+    },
+    {
+      "title": "Classify a product for handling",
+      "story": "The steward sets the handling tags (such as hazmat or fragile), the temperature class and the hazard class. A later classification replaces the earlier one. Other contexts keep their own copy.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Master-data steward"
+      },
+      "command": {
+        "name": "ClassifyProduct",
+        "operationId": "classifyProduct"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductClassified"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "keeps a copy for stow-time placement and segregation checks"
+        },
+        {
+          "system": "order-management",
+          "does": "keeps a copy to enrich incoming orders"
+        },
+        {
+          "system": "wes-work-planning",
+          "does": "keeps a copy for the capabilities and the fragile flag at release"
+        },
+        {
+          "system": "fulfillment-execution",
+          "does": "keeps a copy for segregation checks when sealing a package"
+        },
+        {
+          "system": "slotting-optimization",
+          "does": "keeps tags and temperature class to match SKUs to slots"
+        },
+        {
+          "system": "returns-processing",
+          "does": "keeps a copy of each SKU's handling class"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/classify_product.go",
+        "internal/domain/product/classification.go",
+        "internal/domain/product/product.go"
+      ]
+    },
+    {
+      "title": "Declare a unit's size and weight",
+      "story": "The steward states the length, width, height and weight of one unit, as the vendor or catalogue says. Values outside the allowed range are refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Master-data steward"
+      },
+      "command": {
+        "name": "DeclareDimensions",
+        "operationId": "declareDimensions"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductDimensionsDeclared"
+      ],
+      "then": [
+        {
+          "system": "slotting-optimization",
+          "does": "refreshes the unit size it uses to fit SKUs into slots"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/physical_profile.go",
+        "internal/domain/product/physical.go"
+      ]
+    },
+    {
+      "title": "Record a measured unit",
+      "story": "A dimensioning device or a person reports what one real unit measures. The latest reading wins and an older one is refused. More than 10 % off the declared size is flagged, not rejected.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dimensioning device or operator"
+      },
+      "command": {
+        "name": "RecordMeasurement",
+        "operationId": "recordMeasurement"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductMeasured"
+      ],
+      "then": [
+        {
+          "system": "slotting-optimization",
+          "does": "uses the measured size in place of the declared one"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/physical_profile.go",
+        "internal/domain/product/physical.go"
+      ]
+    },
+    {
+      "title": "Declare a pack level and its GTIN",
+      "story": "The steward declares a pack level (each, inner, case or pallet) with its barcode and how many units it holds. A barcode can identify only one SKU and level, fleet-wide and for ever.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Master-data steward"
+      },
+      "reads": [
+        "GTINs already assigned"
+      ],
+      "command": {
+        "name": "DeclarePackLevel",
+        "operationId": "declarePackLevel"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductPackLevelDeclared"
+      ],
+      "then": [
+        {
+          "system": "inbound-receiving",
+          "does": "keeps a packaging view so a scanned barcode resolves to a SKU and a unit count"
+        },
+        {
+          "system": "inventory-storage",
+          "does": "keeps its own packaging view of levels and GTINs"
+        },
+        {
+          "system": "slotting-optimization",
+          "does": "keeps pack sizes to plan case-pick faces"
+        },
+        {
+          "system": "fulfillment-execution",
+          "does": "keeps the pack levels for scan checks"
+        },
+        {
+          "system": "pick-face-replenishment",
+          "does": "keeps a copy of the pack levels"
+        },
+        {
+          "system": "network-inventory-planning",
+          "does": "keeps a pack-level view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/pack_levels.go",
+        "internal/domain/product/packaging_level_def.go"
+      ]
+    },
+    {
+      "title": "Switch a level to a new GTIN",
+      "story": "Declaring a different barcode at a level that is already active retires the old one as superseded and declares the new one, in one step. The old GTIN stays resolvable for ASNs still in flight.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Master-data steward"
+      },
+      "command": {
+        "name": "DeclarePackLevel",
+        "operationId": "declarePackLevel"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductPackLevelRetired",
+        "ProductPackLevelDeclared"
+      ],
+      "then": [
+        {
+          "system": "inbound-receiving",
+          "does": "ends the old GTIN in its packaging view and adds the new one"
+        },
+        {
+          "system": "inventory-storage",
+          "does": "ends the old GTIN in its packaging view and adds the new one"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/pack_levels.go",
+        "internal/domain/product/packaging_level_def.go"
+      ]
+    },
+    {
+      "title": "Retire a pack level",
+      "story": "The steward ends a pack level. The level and its GTIN are kept for look-ups. Retiring a level that is already retired changes nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Master-data steward"
+      },
+      "command": {
+        "name": "RetirePackLevel",
+        "operationId": "retirePackLevel"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductPackLevelRetired"
+      ],
+      "then": [
+        {
+          "system": "slotting-optimization",
+          "does": "plans a SKU whose case level is retired on an each-pick face"
+        },
+        {
+          "system": "pick-face-replenishment",
+          "does": "ends the level in its copy of the pack levels"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/pack_levels.go",
+        "internal/domain/product/packaging_level_def.go"
+      ]
+    },
+    {
+      "title": "Record a measured pack",
+      "story": "A device or operator measures one pack of an active level, such as a case. Like a unit reading, an older one is refused, and a weight below the contents is refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dimensioning device or operator"
+      },
+      "command": {
+        "name": "RecordPackLevelMeasurement",
+        "operationId": "recordPackLevelMeasurement"
+      },
+      "aggregate": "Product",
+      "events": [
+        "ProductPackLevelMeasured"
+      ],
+      "then": [
+        {
+          "system": "slotting-optimization",
+          "does": "keeps the measured size with its copy of the pack level"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/pack_levels.go",
+        "internal/domain/product/physical.go"
+      ]
+    },
+    {
+      "title": "Feed the data quality report",
+      "story": "Each unit event is also written to a separate stream. A reporting service folds it into a data quality view: how many SKUs are registered, classified, sized and measured.",
+      "trigger": {
+        "kind": "event",
+        "event": "ProductMeasured"
+      },
+      "policy": "Whenever a product event is published, add it to the data quality report's own copy",
+      "updates": [
+        "Master data quality report"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "docs/adr/0006-analytics-read-side.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A SKU classified moments before its first stow may reach a consumer late. Consumers keep their own rules for an unknown SKU.",
+      "evidence": "docs/adr/0001-product-master-bounded-context.md"
+    },
+    {
+      "text": "The size tolerance is fixed at 10 %, and only the latest measurement is kept, with no history of readings.",
+      "evidence": "docs/adr/0002-physical-profile-declared-vs-measured.md"
+    },
+    {
+      "text": "A classification can be replaced but never removed: there is no unclassify command or event.",
+      "evidence": "docs/docs/ddd/domain-events.md"
+    },
+    {
+      "text": "Weighed, variable-measure items are refused: a GTIN with indicator digit 9 is rejected in v1.",
+      "evidence": "docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md"
+    },
+    {
+      "text": "After the publisher gives up on a stuck message, later ones overtake it, even for the same SKU. Consumers rely on the version to cope.",
+      "evidence": "docs/adr/0007-outbox-relay-attempt-cap.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Expected package weight at the weigh check, slot fit at stow and cube-based capacity could use the effective unit size. None is built.",
+      "evidence": "docs/adr/0002-physical-profile-declared-vs-measured.md"
+    },
+    {
+      "text": "A per-category size tolerance instead of the fixed 10 % is named as a later decision.",
+      "evidence": "docs/adr/0002-physical-profile-declared-vs-measured.md"
+    }
+  ]
+}

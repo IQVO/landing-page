@@ -1,0 +1,378 @@
+{
+  "context": "pricing",
+  "oneLine": "Owns what a shopper pays: list prices and sales per item, delivery charges, a tax table, and the binding price quote a checkout is built on.",
+  "pivotal": [
+    "ItemPriceChanged",
+    "ItemPriceWithdrawn",
+    "DeliveryChargeScheduleChanged",
+    "TaxTableChanged",
+    "PriceQuoteIssued"
+  ],
+  "rows": [
+    {
+      "title": "Price a new item",
+      "story": "A merchandiser sets the first list price of a catalogue item. The item must already be known and not discontinued, and the amount must be in the one configured currency.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Merchandiser"
+      },
+      "reads": [
+        "Known catalogue items"
+      ],
+      "command": {
+        "name": "CreateItemPrice",
+        "operationId": "createItemPrice"
+      },
+      "aggregate": "ItemPrice",
+      "events": [
+        "ItemPriceChanged"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "shows the price on the product page and marks the item purchasable"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "keeps the item's current price for its cart estimate"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/itemprice.go",
+        "internal/domain/itemprice/itemprice.go"
+      ]
+    },
+    {
+      "title": "Change a list price",
+      "story": "A merchandiser changes the standing price of an item. A price change is announced only if what shoppers see really moved, and a sale price must stay below the new list price.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Merchandiser"
+      },
+      "reads": [
+        "Known catalogue items"
+      ],
+      "command": {
+        "name": "SetListPrice",
+        "operationId": "setListPrice"
+      },
+      "aggregate": "ItemPrice",
+      "events": [
+        "ItemPriceChanged"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "updates the price on the product page"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "updates the item's current price for its cart estimate"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/itemprice.go",
+        "internal/domain/itemprice/itemprice.go"
+      ]
+    },
+    {
+      "title": "Schedule a sale",
+      "story": "A merchandiser plans a sale window with a price below the list price. Windows of one item never overlap. If the window is already open the new price is announced now, otherwise later.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Merchandiser"
+      },
+      "reads": [
+        "Known catalogue items"
+      ],
+      "command": {
+        "name": "ScheduleSale",
+        "operationId": "scheduleSale"
+      },
+      "aggregate": "ItemPrice",
+      "events": [
+        "ItemPriceChanged"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "updates the price on the product page"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "updates the item's current price for its cart estimate"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/itemprice.go",
+        "internal/domain/itemprice/itemprice.go"
+      ]
+    },
+    {
+      "title": "Cancel a sale",
+      "story": "A merchandiser cancels a planned or running sale. Cancelling the running sale puts the price back to the list price and announces it; cancelling a future one announces nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Merchandiser"
+      },
+      "command": {
+        "name": "CancelSale",
+        "operationId": "cancelSale"
+      },
+      "aggregate": "ItemPrice",
+      "events": [
+        "ItemPriceChanged"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "puts the list price back on the product page"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "puts the list price back in its cart estimate"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/itemprice.go",
+        "internal/domain/itemprice/itemprice.go"
+      ]
+    },
+    {
+      "title": "Withdraw a price",
+      "story": "A merchandiser takes an item's price off. A withdrawn price is final: it cannot be changed, scheduled or quoted again, and the item stops being purchasable.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Merchandiser"
+      },
+      "command": {
+        "name": "WithdrawPrice",
+        "operationId": "withdrawPrice"
+      },
+      "aggregate": "ItemPrice",
+      "events": [
+        "ItemPriceWithdrawn"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "marks the item as no longer purchasable"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "clears the item's price, so it is no longer purchasable"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/itemprice.go",
+        "internal/domain/itemprice/itemprice.go"
+      ]
+    },
+    {
+      "title": "Publish delivery charges",
+      "story": "A merchandiser publishes a new delivery charge schedule: one charge per delivery speed, with an optional free-delivery threshold. It replaces the current one and its version must be higher.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Merchandiser"
+      },
+      "command": {
+        "name": "PublishChargeSchedule",
+        "operationId": "publishChargeSchedule"
+      },
+      "aggregate": "DeliveryChargeSchedule",
+      "events": [
+        "DeliveryChargeScheduleChanged"
+      ],
+      "then": [
+        {
+          "system": "shopping-cart",
+          "does": "replaces the delivery charges used in its cart estimate"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/publish.go",
+        "internal/domain/schedule/schedule.go"
+      ]
+    },
+    {
+      "title": "Publish the tax table",
+      "story": "A merchandiser publishes a new tax table: rates by destination postal-prefix band, never overlapping. It replaces the current table and its version must be higher.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Merchandiser"
+      },
+      "command": {
+        "name": "PublishTaxTable",
+        "operationId": "publishTaxTable"
+      },
+      "aggregate": "TaxTable",
+      "events": [
+        "TaxTableChanged"
+      ],
+      "then": [
+        {
+          "system": "shopping-cart",
+          "does": "replaces the tax rates used in its cart estimate"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/publish.go",
+        "internal/domain/tax/tax.go"
+      ]
+    },
+    {
+      "title": "Quote a checkout",
+      "story": "When a checkout opens, it asks for a binding quote for the frozen cart. The quote fixes goods, delivery, tax and total, is valid for 15 minutes and comes back in the same reply.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Checkout, for a shopper"
+      },
+      "reads": [
+        "Item prices",
+        "Current delivery charges",
+        "Current tax table"
+      ],
+      "command": {
+        "name": "IssuePriceQuote",
+        "operationId": "issuePriceQuote"
+      },
+      "aggregate": "PriceQuote",
+      "events": [
+        "PriceQuoteIssued"
+      ],
+      "evidence": [
+        "internal/application/usecases/quote.go",
+        "internal/domain/quote/quote.go"
+      ]
+    },
+    {
+      "title": "Keep the catalogue list",
+      "story": "offer-availability announces every new catalogue item. Pricing keeps a copy of which items exist, so a price can be set without a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemCreated"
+      },
+      "policy": "Whenever a catalogue item is created, record it as known and active",
+      "updates": [
+        "Known catalogue items"
+      ],
+      "command": {
+        "name": "Consumer.CatalogItemCreated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/adapters/inbound/kafka/offer_availability.go"
+      ]
+    },
+    {
+      "title": "Withdraw the price of a discontinued item",
+      "story": "When an item is discontinued, its price is withdrawn automatically, in the same step that records the discontinuation. An item that was never priced only updates the copy.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemDiscontinued"
+      },
+      "policy": "Whenever an item is discontinued, mark it so and withdraw its active price",
+      "updates": [
+        "Known catalogue items"
+      ],
+      "command": {
+        "name": "Consumer.CatalogItemDiscontinued",
+        "via": "policy"
+      },
+      "aggregate": "ItemPrice",
+      "events": [
+        "ItemPriceWithdrawn"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "marks the item as no longer purchasable"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "clears the item's price, so it is no longer purchasable"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/adapters/inbound/kafka/offer_availability.go"
+      ]
+    },
+    {
+      "title": "Announce prices when a sale starts or ends",
+      "story": "A sweep looks for sale windows that opened or closed since the price was last checked and announces the new price. Re-running the same boundary announces nothing.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Policy sweep"
+      },
+      "policy": "Every sweep, an item whose sale started or ended announces its new price",
+      "command": {
+        "name": "PublishBoundaries",
+        "via": "timer"
+      },
+      "aggregate": "ItemPrice",
+      "events": [
+        "ItemPriceChanged"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "updates the price on the product page"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "updates the item's current price for its cart estimate"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "cmd/api/policies.go"
+      ]
+    },
+    {
+      "title": "Let old quotes expire",
+      "story": "A sweep marks issued quotes as expired once their 15 minutes are over. Nothing is announced: a quote past its time already reads as expired.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Policy sweep"
+      },
+      "policy": "Every sweep, any issued quote past its expiry time becomes expired",
+      "command": {
+        "name": "ExpireQuotes",
+        "via": "timer"
+      },
+      "aggregate": "PriceQuote",
+      "evidence": [
+        "internal/application/usecases/quote.go",
+        "cmd/api/policies.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A price cannot be set before the item is known here. The request is refused and the merchandiser has to retry once the catalogue event arrives.",
+      "evidence": "docs/adr/0003-consumed-contracts-and-local-read-model.md"
+    },
+    {
+      "text": "A withdrawn price is final and cannot be revived. How to sell the item again is documented as an open question.",
+      "evidence": "docs/docs/ddd/aggregate-design-canvas.md"
+    },
+    {
+      "text": "A price can move between the cart's estimate and the checkout. Only the binding quote is final, and it lasts 15 minutes.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Coupons and promotions are a later phase; today a sale window is the only way to discount an item.",
+      "evidence": "docs/docs/overview/introduction.md"
+    },
+    {
+      "text": "The tax table is synthetic. Real tax calculation is meant to come from a bought tax engine later.",
+      "evidence": "docs/docs/overview/introduction.md"
+    }
+  ]
+}

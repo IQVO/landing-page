@@ -23,6 +23,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preload" href="/assets/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/css/main.css">
+<link rel="stylesheet" href="/assets/css/es.css">
 <noscript><link rel="stylesheet" href="/assets/css/noscript.css"></noscript>
 <script src="/assets/js/boot.js"></script>
 </head>
@@ -50,13 +51,14 @@
         <li><a href="#harness">Harness</a></li>
         <li><a href="#memory">Memory</a></li>
         <li><a href="#ecosystem">Ecosystem</a></li>
+        <li><a href="#eventstorming">EventStorming</a></li>
         <li><a href="/engineering/">Engineering</a></li>
         <li><a href="/architecture/#functions">Fitness functions</a></li>
         <li><a href="/briefings/">Briefings</a></li>
       </ul>
       <div class="nav__cta">
         <a class="btn btn--ghost btn--sm" href="{{github}}" rel="noopener">GitHub<span aria-hidden="true"> ↗</span></a>
-        <a class="btn btn--solid btn--sm" href="{{docs}}/" rel="noopener">Documentation<span aria-hidden="true"> ↗</span></a>
+        <a class="btn btn--solid btn--sm" href="{{docs}}/" rel="noopener" aria-label="Documentation">Docs<span aria-hidden="true"> ↗</span></a>
       </div>
     </nav>
   </div>
@@ -639,11 +641,47 @@
   </div>
 </section>
 
-<!-- ============================ 10 DOCS ============================ -->
+<!-- ============================ 10 EVENTSTORMING ============================ -->
+<section class="section es-home" id="eventstorming" aria-labelledby="es-title">
+  <div class="wrap">
+    <header class="sec-head reveal">
+      <p class="kicker">§ 10 &middot; EventStorming</p>
+      <h2 id="es-title">The whole ecosystem, <em>on one wall of sticky notes.</em></h2>
+      <p class="sec-lede"><strong>EventStorming</strong> is a workshop method by Alberto Brandolini for seeing how a business really works: write what happens on sticky notes, line them up on a timeline, then ask what caused each one. We replayed it on IQVO: one <strong>big picture</strong> of all {{contexts}} bounded contexts, then a <strong>board for every context</strong>, rebuilt from its real code and documentation, in the official colours.</p>
+    </header>
+    <ol class="es-steps reveal" aria-label="How EventStorming works in three steps">
+      <li><b>Find the events</b>Orange notes: things that happened, in the past tense, placed left to right in time.</li>
+      <li><b>Ask what caused each one</b>A blue command, a small yellow actor, a lilac policy (&ldquo;whenever X, do Y&rdquo;), a green read model for what they needed to know.</li>
+      <li><b>Find the rule keepers</b>Big yellow aggregates accept or refuse each command. Where the language changes, a bounded context begins.</li>
+    </ol>
+    <div class="es-demo reveal">
+      <h3>The colours</h3>
+      {{html:esLegend}}
+    </div>
+    <div class="es-demo reveal">
+      <h3>One real row, read left to right</h3>
+      {{html:esDemo}}
+    </div>
+    <dl class="engband reveal" aria-label="EventStorming in numbers">
+      <div><dt>context boards</dt><dd class="es-n">{{es.boards}}</dd></div>
+      <div><dt>domain events placed</dt><dd class="es-n">{{es.events}}</dd></div>
+      <div><dt>commands</dt><dd class="es-n">{{es.commands}}</dd></div>
+      <div><dt>policies</dt><dd class="es-n">{{es.policies}}</dd></div>
+      <div><dt>hot spots</dt><dd class="es-n">{{es.hotspots}}</dd></div>
+    </dl>
+    <div class="cta reveal">
+      <a class="btn btn--solid" href="/eventstorming/#big-picture">See the big picture</a>
+      <a class="btn btn--ghost" href="/eventstorming/#boards">Browse the {{es.boards}} boards</a>
+    </div>
+    <p class="caveat reveal"><strong>A reconstruction, not a workshop.</strong> A real EventStorming puts domain experts in a room. These boards are rebuilt from what each repository says today, and a script checks every event, command and aggregate against the sources: a board that invents or omits one fails the build. Hot spots are only gaps the decision records already admit.</p>
+  </div>
+</section>
+
+<!-- ============================ 11 DOCS ============================ -->
 <section class="section section--white" id="docs" aria-labelledby="docs-title">
   <div class="wrap">
     <header class="sec-head reveal">
-      <p class="kicker">§ 10 &middot; Go deeper</p>
+      <p class="kicker">§ 11 &middot; Go deeper</p>
       <h2 id="docs-title">Read the work, <em>not just the pitch.</em></h2>
     </header>
 
@@ -660,6 +698,7 @@
           <li><a href="/engineering/"><b>Engineering study</b><span>Quality, PRs and commits per project per month; a report every week</span></a></li>
           <li><a href="/architecture/"><b>Architecture assessment</b><span>Ten fitness functions per project: structure, coupling, contracts, governance</span></a></li>
           <li><a href="/briefings/"><b>Executive briefings</b><span>Four program landing pages over the committed decks: WMS/WES, retail, yard, storefront</span></a></li>
+          <li><a href="/eventstorming/"><b>EventStorming</b><span>A big picture of the ecosystem and a sticky-note board for every bounded context</span></a></li>
         </ul>
       </section>
       <section aria-labelledby="l-gh">
@@ -713,6 +752,7 @@
     <a href="/engineering/">Engineering study</a>
     <a href="/architecture/">Architecture assessment</a>
     <a href="/briefings/">Executive briefings</a>
+    <a href="/eventstorming/">EventStorming</a>
     <a href="#top">Back to top ↑</a>
   </div>
 </footer>
