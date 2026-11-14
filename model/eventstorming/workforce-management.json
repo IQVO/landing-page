@@ -1,0 +1,306 @@
+{
+  "context": "workforce-management",
+  "oneLine": "Tracks who is on shift and on which process path: commits each shift's headcount plan, assigns certified people to paths and flags paths that are short of people.",
+  "pivotal": [
+    "ShiftPlanCommitted",
+    "AssociateShiftStarted",
+    "LaborAssigned",
+    "PathUnderstaffed",
+    "AssociateShiftEnded"
+  ],
+  "rows": [
+    {
+      "title": "Propose heads for a path",
+      "story": "A shift lead asks how many people a path needs for a forecast workload. With no planned rate, the measured rate is used. If people on that work are often idle, the answer is trimmed. Nothing is saved.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "policy": "Whenever no rate is given, use the measured rate; trim the heads when the idle share is high",
+      "reads": [
+        "Measured task rates",
+        "Idle share per path"
+      ],
+      "command": {
+        "name": "ProposePathPlan",
+        "operationId": "proposePathPlan"
+      },
+      "aggregate": "PathPlan",
+      "events": [
+        "ShiftPlanProposed"
+      ],
+      "evidence": [
+        "internal/application/usecases/propose_path_plan.go",
+        "internal/domain/shiftplan/shift_plan.go",
+        "docs/docs/adr/0012-measured-rate-feed-for-propose-path-plan.md"
+      ]
+    },
+    {
+      "title": "Commit the shift's headcount split",
+      "story": "A shift lead commits how many people go on each path. A line is refused if its heads exceed the stations installed, the hours the heads can work or the live station count. One announcement goes out per path line.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "reads": [
+        "Process-path list",
+        "Live station count per skill"
+      ],
+      "command": {
+        "name": "CommitShiftPlan",
+        "operationId": "commitShiftPlan"
+      },
+      "aggregate": "ShiftPlan",
+      "events": [
+        "ShiftPlanCommitted"
+      ],
+      "then": [
+        {
+          "system": "warehouse-planning",
+          "does": "turns each plan line into a labour limit for the shift's hours"
+        },
+        {
+          "system": "wes-work-planning",
+          "does": "keeps the latest labour plan per path and checks it against its own plan"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/commit_shift_plan.go",
+        "internal/domain/shiftplan/shift_plan.go",
+        "docs/docs/adr/0014-installed-capacity-ceiling.md"
+      ]
+    },
+    {
+      "title": "Start an associate's shift",
+      "story": "A shift lead puts an associate on the roster with their certifications and, optionally, their site. Starting again for the same associate restarts the roster entry instead of failing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "command": {
+        "name": "StartAssociateShift",
+        "operationId": "startAssociateShift"
+      },
+      "aggregate": "AssociateShift",
+      "events": [
+        "AssociateShiftStarted"
+      ],
+      "evidence": [
+        "internal/application/usecases/start_associate_shift.go",
+        "internal/domain/associate/associate_shift.go"
+      ]
+    },
+    {
+      "title": "Certify an associate",
+      "story": "A shift lead adds a certification, such as pick, pack or hazmat, to an associate on shift. A path that needs a certification can only take people who hold it.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "command": {
+        "name": "CertifyAssociate",
+        "operationId": "certifyAssociate"
+      },
+      "aggregate": "AssociateShift",
+      "events": [
+        "AssociateCertified"
+      ],
+      "evidence": [
+        "internal/application/usecases/certify_associate.go",
+        "internal/domain/associate/associate_shift.go",
+        "docs/docs/adr/0009-hazmat-certification-via-existing-path-gating.md"
+      ]
+    },
+    {
+      "title": "Start a break",
+      "story": "A shift lead logs the start of an associate's break. Nobody can be assigned to a path while on a break.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "command": {
+        "name": "StartBreak",
+        "operationId": "startAssociateBreak"
+      },
+      "aggregate": "AssociateShift",
+      "events": [
+        "AssociateBreakStarted"
+      ],
+      "evidence": [
+        "internal/application/usecases/breaks.go",
+        "internal/domain/associate/associate_shift.go"
+      ]
+    },
+    {
+      "title": "End a break",
+      "story": "A shift lead logs the end of the break, and the associate can be assigned to a path again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "command": {
+        "name": "EndBreak",
+        "operationId": "endAssociateBreak"
+      },
+      "aggregate": "AssociateShift",
+      "events": [
+        "AssociateBreakEnded"
+      ],
+      "evidence": [
+        "internal/application/usecases/breaks.go",
+        "internal/domain/associate/associate_shift.go"
+      ]
+    },
+    {
+      "title": "Assign an associate to a path",
+      "story": "A shift lead, or an agent acting for one, puts an associate on a path. They must hold the path's certification and not be on break. Moving someone ends their old assignment, so nobody is on two paths at once.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "reads": [
+        "Process-path list"
+      ],
+      "command": {
+        "name": "AssignLabor",
+        "operationId": "assignLabor"
+      },
+      "aggregate": "LaborAssignment",
+      "events": [
+        "LaborAssigned",
+        "LaborReassigned"
+      ],
+      "evidence": [
+        "internal/application/usecases/assign_labor.go",
+        "internal/domain/assignment/labor_assignment.go",
+        "docs/docs/adr/0003-certification-gated-single-active-assignment.md"
+      ]
+    },
+    {
+      "title": "Spot a path that is short of people",
+      "story": "Asking for a path's staffing gap compares planned heads with people actually assigned. If the path is short, a notice is raised as a flag only. Nobody is moved: a human decides.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "reads": [
+        "Committed shift plan",
+        "Active assignments",
+        "Idle share per path"
+      ],
+      "command": {
+        "name": "GetStaffingGap",
+        "operationId": "getStaffingGap"
+      },
+      "aggregate": "ShiftPlan",
+      "events": [
+        "PathUnderstaffed"
+      ],
+      "evidence": [
+        "internal/application/usecases/get_staffing_gap.go",
+        "docs/docs/adr/0002-stop-at-the-path-boundary.md"
+      ]
+    },
+    {
+      "title": "End an associate's shift",
+      "story": "A shift lead ends the shift. The associate's active assignment is closed first and its hours are logged against the shift.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shift lead"
+      },
+      "policy": "Whenever a shift ends, close the associate's active assignment and log its hours",
+      "command": {
+        "name": "EndAssociateShift",
+        "operationId": "endAssociateShift"
+      },
+      "aggregate": "AssociateShift",
+      "events": [
+        "AssociateShiftEnded"
+      ],
+      "evidence": [
+        "internal/application/usecases/end_associate_shift.go",
+        "internal/domain/associate/associate_shift.go"
+      ]
+    },
+    {
+      "title": "Keep the process-path list",
+      "story": "process-path-management announces every path that is defined, revised or retired. This context keeps its own list, used to check plans and to work out which certification a path needs.",
+      "trigger": {
+        "kind": "external",
+        "system": "process-path-management",
+        "event": "ProcessPathCreated"
+      },
+      "policy": "Whenever a path is created, revised or retired, update the local process-path list",
+      "updates": [
+        "Process-path list"
+      ],
+      "evidence": [
+        "internal/adapters/outbound/kafkacatalog/consumer.go",
+        "docs/docs/adr/0030-kafka-sourced-process-path-catalogue.md"
+      ]
+    },
+    {
+      "title": "Keep the measured rates",
+      "story": "labor-performance reports how long tasks really take and how idle people are. This context keeps the latest figures per task type, so a proposal can use a real rate and the staffing gap can show idle time.",
+      "trigger": {
+        "kind": "external",
+        "system": "labor-performance",
+        "event": "TaskPerformanceRecorded"
+      },
+      "policy": "Whenever a task's performance is recorded, update the measured rate and idle share of its task type",
+      "updates": [
+        "Measured task rates",
+        "Idle share per path"
+      ],
+      "evidence": [
+        "internal/adapters/outbound/laborperformancecache/consumer.go",
+        "docs/docs/adr/0019-labor-performance-cache-consumer.md",
+        "docs/docs/adr/0020-idle-share-staffing-signal.md"
+      ]
+    },
+    {
+      "title": "Feed the labour report",
+      "story": "The service reads its own announcements and keeps daily labour figures: shifts, breaks, certifications, assignments and understaffing. They feed the labour report.",
+      "trigger": {
+        "kind": "event",
+        "event": "LaborAssigned"
+      },
+      "policy": "Whenever a labour or shift event is announced, add it to that day's labour figures",
+      "updates": [
+        "Labour report"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "docs/docs/adr/0010-analytical-data-product.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Committing a shift plan asks fulfillment-execution live for station counts. If that call fails, the whole commit is refused. Moving it to events is a follow-up.",
+      "evidence": "docs/docs/adr/0038-postgres-and-kafka-are-the-only-runtime.md"
+    },
+    {
+      "text": "The installed-station count on a commit is supplied by the caller and cannot be verified here, so a second check against the live count was added.",
+      "evidence": "docs/docs/adr/0014-installed-capacity-ceiling.md"
+    },
+    {
+      "text": "With no planned rate and no measured rate yet for a path, a proposal comes back with zero heads rather than an error.",
+      "evidence": "docs/docs/adr/0012-measured-rate-feed-for-propose-path-plan.md"
+    },
+    {
+      "text": "Messages that cannot be processed go to a holding area with no alerting and no replay tool.",
+      "evidence": "docs/docs/adr/0022-resilience-circuit-breakers-retry-dlq-shutdown.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "The live call to fulfillment-execution for station counts, and the REST rollback for measured rates, are tracked as follow-ups to move onto events.",
+      "evidence": "docs/docs/adr/0038-postgres-and-kafka-are-the-only-runtime.md"
+    },
+    {
+      "text": "The deprecated buildingId name will be removed only by a later announced breaking decision; siteCode is already the canonical name.",
+      "evidence": "docs/docs/adr/0035-sitecode-converges-building-id.md"
+    }
+  ]
+}

@@ -1,0 +1,438 @@
+{
+  "context": "linehaul-transportation",
+  "oneLine": "Plans the trucks and flights between nodes, books each locked order's package on a pickup, and tracks loads from dispatch to arrival.",
+  "pivotal": [
+    "DepartureScheduled",
+    "BookingMoved",
+    "LoadDeparted",
+    "LoadArrived"
+  ],
+  "rows": [
+    {
+      "title": "Define a lane's weekly schedule",
+      "story": "A planner sets the weekly template of a lane: for each slot the cut-off, departure and arrival times and how many packages fit. Redefining replaces the slots; departures already planned stay.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Lane and node copies"
+      ],
+      "command": {
+        "name": "DefineLaneSchedule",
+        "operationId": "defineLaneSchedule"
+      },
+      "aggregate": "LaneSchedule",
+      "evidence": [
+        "internal/application/usecases/schedules.go",
+        "internal/domain/schedule/schedule.go"
+      ]
+    },
+    {
+      "title": "Retire a lane's schedule",
+      "story": "A planner retires the schedule of a lane. No new departures are planned from it; departures already planned are not cancelled.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "RetireLaneSchedule",
+        "operationId": "retireLaneSchedule"
+      },
+      "aggregate": "LaneSchedule",
+      "evidence": [
+        "internal/application/usecases/schedules.go",
+        "internal/domain/schedule/schedule.go"
+      ]
+    },
+    {
+      "title": "Keep two weeks of departures planned",
+      "story": "At start and then every interval, every active lane schedule is expanded into departures for the next 14 days. A rerun adds only what is missing.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Horizon roll"
+      },
+      "policy": "Every interval, plan the departures missing from the next 14 days of every active schedule",
+      "reads": [
+        "Lane and node copies"
+      ],
+      "command": {
+        "name": "GenerateDepartures",
+        "via": "timer"
+      },
+      "aggregate": "Departure",
+      "events": [
+        "DepartureScheduled"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "adds the departure to its copy so promises can use it"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "adds the departure to the network copy its search uses"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/generate.go",
+        "internal/domain/schedule/plan.go",
+        "internal/domain/departure/departure.go"
+      ]
+    },
+    {
+      "title": "Plan pickups when a vendor centre goes live",
+      "story": "A vendor-run centre gets a pickup departure for each of its declared cut-offs, over 14 days. Pickups are re-planned when its profile changes or a lane opens, whichever arrives last.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeActivated"
+      },
+      "policy": "Whenever a centre is activated, revised or gets a lane, plan its pickups from its cut-offs",
+      "updates": [
+        "Lane and node copies"
+      ],
+      "command": {
+        "name": "HandleNodeActivated",
+        "via": "policy"
+      },
+      "aggregate": "Departure",
+      "events": [
+        "DepartureScheduled"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "adds the pickup to its copy so promises can use it"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "adds the pickup to the network copy its search uses"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/application/usecases/generate.go",
+        "internal/domain/schedule/pickup.go"
+      ]
+    },
+    {
+      "title": "Stop pickups when a centre leaves service",
+      "story": "When a node is suspended or retired, its future pickups are cancelled, and every package booked on them is moved to the next pickup or reported as failed.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeSuspended"
+      },
+      "policy": "Whenever a node is suspended or retired, cancel its future pickups",
+      "updates": [
+        "Lane and node copies"
+      ],
+      "command": {
+        "name": "HandleNodeSuspended",
+        "via": "policy"
+      },
+      "aggregate": "Departure",
+      "events": [
+        "DepartureCancelled"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "flags promises whose route used the pickup as at risk"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the pickup as cancelled in its network copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/application/usecases/booking.go",
+        "internal/domain/departure/departure.go"
+      ]
+    },
+    {
+      "title": "Cancel a departure",
+      "story": "A planner cancels a departure that has not left. Every package booked on it moves to the next pickup from the same origin, or the booking is reported as failed.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "CancelDeparture",
+        "operationId": "cancelDeparture"
+      },
+      "aggregate": "Departure",
+      "events": [
+        "DepartureCancelled"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "flags promises whose route used the departure as at risk"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the departure as cancelled in its network copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/departures.go",
+        "internal/application/usecases/booking.go",
+        "internal/domain/departure/departure.go"
+      ]
+    },
+    {
+      "title": "Change a departure's capacity",
+      "story": "A planner resizes a departure that has not left. It cannot go below what is already booked.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "ChangeDepartureCapacity",
+        "operationId": "changeDepartureCapacity"
+      },
+      "aggregate": "Departure",
+      "events": [
+        "DepartureCapacityChanged"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "updates the room left on its copy of the departure"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "updates the room left on its copy of the departure"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/departures.go",
+        "internal/domain/departure/departure.go"
+      ]
+    },
+    {
+      "title": "Book a package when the order locks",
+      "story": "When a group locks on a node, one package is booked on its pickup. If that pickup is full, closed or gone the booking moves to the next pickup, or fails. A merged package books only once.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentLocked"
+      },
+      "policy": "Whenever a group locks, book one package on its pickup, or the next one, or report a failure",
+      "reads": [
+        "Expected volume"
+      ],
+      "command": {
+        "name": "HandleLocked",
+        "via": "policy"
+      },
+      "aggregate": "ExpectedVolume",
+      "events": [
+        "DepartureCapacityChanged",
+        "BookingMoved",
+        "BookingFailed"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "points the locked group at the new pickup; a failed booking changes nothing there"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "flags the promise as at risk and skips the departure that was left"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/application/usecases/booking.go",
+        "internal/domain/volume/volume.go",
+        "docs/adr/0014-consolidated-follower-lock-books-nothing.md"
+      ]
+    },
+    {
+      "title": "Keep the expected volume",
+      "story": "Each release tells linehaul which node and planned pickup a group is heading for. A reassignment or cancellation only updates this record; nothing is booked before the lock.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentReleasedToNode"
+      },
+      "policy": "Whenever a group is released, reassigned or cancelled, update its expected volume record",
+      "updates": [
+        "Expected volume"
+      ],
+      "command": {
+        "name": "HandleReleased",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/domain/volume/volume.go"
+      ]
+    },
+    {
+      "title": "Keep the tracking numbers",
+      "story": "Shipping-and-tracking issues the labels. Linehaul keeps each tracking number on the group's record; a voided label removes its number but keeps the booking.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "LabelIssued"
+      },
+      "policy": "Whenever a label is issued or voided, add or remove its tracking number on the group's record",
+      "updates": [
+        "Expected volume"
+      ],
+      "command": {
+        "name": "HandleLabelIssued",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/domain/volume/volume.go"
+      ]
+    },
+    {
+      "title": "Open a load on a departure",
+      "story": "An operator opens the load that will ride a departure that has not left. A departure has at most one load.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "OpenLoad",
+        "operationId": "openLoad"
+      },
+      "aggregate": "Load",
+      "evidence": [
+        "internal/application/usecases/loads.go",
+        "internal/domain/load/load.go"
+      ]
+    },
+    {
+      "title": "Add a package to the load",
+      "story": "An operator scans a package onto an open load. A package can be on only one open load, and the load cannot exceed the departure's capacity. On a truck or flight (not a pickup) the package also takes a seat.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "AddPackage",
+        "operationId": "addPackageToLoad"
+      },
+      "aggregate": "Load",
+      "evidence": [
+        "internal/application/usecases/loads.go",
+        "internal/domain/load/load.go"
+      ]
+    },
+    {
+      "title": "Close the load",
+      "story": "An operator closes the load; the departure closes with it. No package can be added afterwards.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "CloseLoad",
+        "operationId": "closeLoad"
+      },
+      "aggregate": "Load",
+      "events": [
+        "LoadClosed"
+      ],
+      "evidence": [
+        "internal/application/usecases/loads.go",
+        "internal/domain/load/load.go"
+      ]
+    },
+    {
+      "title": "Dispatch the load",
+      "story": "An operator sends a closed load on its way. The load and its departure are recorded as departed.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DispatchLoad",
+        "operationId": "dispatchLoad"
+      },
+      "aggregate": "Load",
+      "events": [
+        "LoadDeparted",
+        "DepartureDeparted"
+      ],
+      "then": [
+        {
+          "system": "shipping-and-tracking",
+          "does": "records a departure scan for each tracking number"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "starts timing the trip to measure real transit time"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/loads.go",
+        "internal/domain/load/load.go",
+        "internal/domain/departure/departure.go"
+      ]
+    },
+    {
+      "title": "Receive the load at its destination",
+      "story": "An operator receives a departed load at its destination. The load and its departure are recorded as arrived.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "ReceiveLoad",
+        "operationId": "receiveLoad"
+      },
+      "aggregate": "Load",
+      "events": [
+        "LoadArrived",
+        "DepartureArrived"
+      ],
+      "then": [
+        {
+          "system": "last-mile-delivery",
+          "does": "takes in each package when the load reaches a delivery station"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "records an arrival scan for each tracking number"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "completes the measured transit time and notes the arrival"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/loads.go",
+        "internal/domain/load/load.go",
+        "internal/domain/departure/departure.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A booking that fails leaves the locked group without a seat. Order-sourcing only records it; delivery-promise flags the promise as at risk.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "If order-sourcing cancels after the lock, the package stays booked on its departure until the departure leaves.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "A closed lane cancels nothing: departures already planned on it stay until a planner cancels them by hand.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "There is no metric for the unsent-event backlog, consumer lag or the horizon roll, and no alert on parked failed messages; they are read from the database and logs.",
+      "evidence": "docs/docs/operations/observability.md"
+    }
+  ]
+}

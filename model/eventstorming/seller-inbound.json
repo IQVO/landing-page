@@ -1,0 +1,441 @@
+{
+  "context": "seller-inbound",
+  "oneLine": "Lets a seller plan, pack, label and ship stock to a network node, checks what actually arrives, and advises where to send more.",
+  "pivotal": [
+    "InboundPlanConfirmed",
+    "InboundShipmentLabelled",
+    "InboundShipmentShipped",
+    "InboundShipmentReceived",
+    "SellerSuspended",
+    "PlacementPlanSuggested"
+  ],
+  "rows": [
+    {
+      "title": "Onboard a seller",
+      "story": "A network partner manager registers a seller. The seller starts active and can plan inbound shipments straight away. Onboarding an existing seller id is refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network partner manager"
+      },
+      "command": {
+        "name": "OnboardSeller",
+        "operationId": "onboardSeller"
+      },
+      "aggregate": "Account",
+      "events": [
+        "SellerOnboarded"
+      ],
+      "evidence": [
+        "internal/application/usecases/sellers.go",
+        "internal/domain/seller/seller.go"
+      ]
+    },
+    {
+      "title": "Plan an inbound shipment",
+      "story": "A seller says what it will send: a node, a packing style (loose or case-packed) and up to 500 item lines in single units. The node must be able to receive. The draft is private to the seller, so nothing is announced.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Seller"
+      },
+      "reads": [
+        "Nodes that can receive"
+      ],
+      "command": {
+        "name": "CreateInboundPlan",
+        "operationId": "createInboundPlan"
+      },
+      "aggregate": "Plan",
+      "evidence": [
+        "internal/application/usecases/plans.go",
+        "internal/domain/inboundplan/plan.go"
+      ]
+    },
+    {
+      "title": "Confirm the plan",
+      "story": "The seller confirms the draft. The seller must still be active and the node still able to receive. A confirmed plan can be filled by several shipments.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Seller"
+      },
+      "reads": [
+        "Nodes that can receive"
+      ],
+      "command": {
+        "name": "ConfirmInboundPlan",
+        "operationId": "confirmInboundPlan"
+      },
+      "aggregate": "Plan",
+      "events": [
+        "InboundPlanConfirmed"
+      ],
+      "evidence": [
+        "internal/application/usecases/plans.go",
+        "internal/domain/inboundplan/plan.go"
+      ]
+    },
+    {
+      "title": "Pack a carton",
+      "story": "The seller adds a carton to a draft shipment. A carton without an SSCC (the standard carton id) gets one issued. It must fit the node's weight and size limits and the plan, and a case carton must match a declared case size.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Seller"
+      },
+      "reads": [
+        "Packaging levels",
+        "Nodes that can receive"
+      ],
+      "command": {
+        "name": "AddCarton",
+        "operationId": "addCarton"
+      },
+      "aggregate": "Shipment",
+      "evidence": [
+        "internal/application/usecases/shipments.go",
+        "internal/domain/inboundshipment/carton_add.go",
+        "internal/domain/inboundshipment/shipment.go"
+      ]
+    },
+    {
+      "title": "Label the shipment",
+      "story": "The seller seals the shipment. Contents are frozen and the whole carton list is announced, so the vendor knows what to expect. For a plan with a single shipment the cartons must match every plan line.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Seller"
+      },
+      "command": {
+        "name": "LabelShipment",
+        "operationId": "labelInboundShipment"
+      },
+      "aggregate": "Shipment",
+      "events": [
+        "InboundShipmentLabelled"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "keeps the carton list in the inbound shipment view it serves to vendors"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/shipments.go",
+        "internal/domain/inboundshipment/shipment.go",
+        "internal/domain/inboundshipment/events.go"
+      ]
+    },
+    {
+      "title": "Ship the shipment",
+      "story": "The seller sends the labelled shipment. It then waits for the vendor's receipt. The seller must still be active and the node still able to receive.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Seller"
+      },
+      "command": {
+        "name": "ShipInboundShipment",
+        "operationId": "shipInboundShipment"
+      },
+      "aggregate": "Shipment",
+      "events": [
+        "InboundShipmentShipped"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "marks the shipment as shipped in the view it serves to vendors"
+        },
+        {
+          "system": "node-performance",
+          "does": "keeps the shipped time, to measure how long the delivery takes"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/shipments.go",
+        "internal/domain/inboundshipment/shipment.go",
+        "internal/domain/inboundshipment/events.go"
+      ]
+    },
+    {
+      "title": "Check what the vendor received",
+      "story": "The vendor reports carton by carton what it found. The first answer per carton is final. Missing, unexpected or damaged cartons and short or over counts are recorded, and each compliance code raised is recorded as a violation.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "InboundReceiptSubmitted"
+      },
+      "policy": "Whenever a vendor submits a receipt, apply it carton by carton and record every difference",
+      "updates": [
+        "Seller scorecard facts"
+      ],
+      "command": {
+        "name": "ApplyInboundReceipt",
+        "via": "policy"
+      },
+      "aggregate": "Shipment",
+      "events": [
+        "InboundDiscrepancyRecorded",
+        "SellerComplianceViolationRecorded"
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/inboundshipment/receipt.go",
+        "internal/domain/scorecard/facts.go"
+      ]
+    },
+    {
+      "title": "Close the shipment",
+      "story": "Once every carton on the list has an answer the shipment closes, as clean or with discrepancies. The closing fact lists the stock that really arrived, per item.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "InboundReceiptSubmitted"
+      },
+      "policy": "Whenever the last carton gets an answer, close the shipment and announce what arrived",
+      "reads": [
+        "Packaging levels"
+      ],
+      "command": {
+        "name": "ApplyInboundReceipt",
+        "via": "policy"
+      },
+      "aggregate": "Shipment",
+      "events": [
+        "InboundShipmentReceived"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "creates the seller's own listings from the stock that arrived"
+        },
+        {
+          "system": "vendor-connectivity",
+          "does": "marks the shipment as received in the view it serves to vendors"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/domain/inboundshipment/received.go",
+        "internal/domain/inboundshipment/receipt.go",
+        "docs/adr/0014-received-stock-is-published-per-item.md"
+      ]
+    },
+    {
+      "title": "Suspend a seller",
+      "story": "A network partner manager suspends a seller. A suspended seller can plan, pack and ship nothing; a shipment already on its way still closes on the vendor's receipt. Suspending twice does nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network partner manager"
+      },
+      "command": {
+        "name": "SuspendSeller",
+        "operationId": "suspendSeller"
+      },
+      "aggregate": "Account",
+      "events": [
+        "SellerSuspended"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "suppresses the seller's listings"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sellers.go",
+        "internal/domain/seller/seller.go",
+        "docs/adr/0013-seller-status-is-an-integration-fact.md"
+      ]
+    },
+    {
+      "title": "Reinstate a seller",
+      "story": "A network partner manager lifts a suspension. The seller can plan and ship again. Reinstating an active seller does nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network partner manager"
+      },
+      "command": {
+        "name": "ReinstateSeller",
+        "operationId": "reinstateSeller"
+      },
+      "aggregate": "Account",
+      "events": [
+        "SellerReinstated"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "restores the seller's listings"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sellers.go",
+        "internal/domain/seller/seller.go",
+        "docs/adr/0013-seller-status-is-an-integration-fact.md"
+      ]
+    },
+    {
+      "title": "Advise where to send more stock",
+      "story": "A seller asks where more of one item should go. The advice covers each region with demand in the last 28 days and splits the shortfall over its fulfilment centres. No demand gives an empty plan. A new plan replaces the old one.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Seller"
+      },
+      "reads": [
+        "Regional demand",
+        "Node availability",
+        "Fulfilment centres"
+      ],
+      "command": {
+        "name": "ComputePlacementPlan",
+        "operationId": "computePlacementPlan"
+      },
+      "aggregate": "Plan",
+      "events": [
+        "PlacementPlanSuggested"
+      ],
+      "evidence": [
+        "internal/application/usecases/placement.go",
+        "internal/domain/placementplan/plan.go",
+        "docs/adr/0012-the-placement-advisory.md"
+      ]
+    },
+    {
+      "title": "Accept the advice",
+      "story": "The seller accepts a suggested plan. It is only recorded: nothing downstream changes, and the seller still ships through the normal plan flow.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Seller"
+      },
+      "command": {
+        "name": "AcceptPlacementPlan",
+        "operationId": "acceptPlacementPlan"
+      },
+      "aggregate": "Plan",
+      "evidence": [
+        "internal/application/usecases/placement.go",
+        "internal/domain/placementplan/plan.go",
+        "docs/adr/0012-the-placement-advisory.md"
+      ]
+    },
+    {
+      "title": "Keep the list of nodes that can receive",
+      "story": "node-topology announces nodes, their inbound limits and their status. This context keeps a copy, so it never asks live. A node it has not seen as active cannot receive.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeRegistered"
+      },
+      "policy": "Whenever a node is registered, declared, activated, suspended or retired, update its row",
+      "updates": [
+        "Nodes that can receive"
+      ],
+      "command": {
+        "name": "ApplyNodeRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/network/network.go"
+      ]
+    },
+    {
+      "title": "Keep the packaging levels",
+      "story": "offer-availability announces each item's pack levels: each, case, pallet. Case cartons are checked against them, so the sizes must be known before a case carton can be packed.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemPackagingDeclared"
+      },
+      "policy": "Whenever a pack level is declared or retired, update the packaging levels",
+      "updates": [
+        "Packaging levels"
+      ],
+      "command": {
+        "name": "ApplyPackagingDeclared",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/network/network.go"
+      ]
+    },
+    {
+      "title": "Keep the stock each node declares",
+      "story": "offer-availability says how much of an item each node lists. The advice splits a shortfall by this stock.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingAvailabilityChanged"
+      },
+      "policy": "Whenever a listing's availability changes, keep the latest figure per item and node",
+      "updates": [
+        "Node availability"
+      ],
+      "command": {
+        "name": "ApplyListingAvailabilityChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/network/demand.go"
+      ]
+    },
+    {
+      "title": "Keep the regional demand (not switched on)",
+      "story": "order-sourcing says where order lines were sent. The advice sums them per region. The code exists, but the running service does not start this consumer, so the demand copy stays empty.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentReleasedToNode"
+      },
+      "policy": "Whenever an order is released to a node, keep its lines as demand for that region",
+      "updates": [
+        "Regional demand"
+      ],
+      "command": {
+        "name": "ApplyFulfillmentReleased",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/network/demand.go",
+        "docs/docs/ecosystem/integration.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "The demand half of the placement advice is never filled: the order-sourcing consumer exists but is not started, so advice comes out empty.",
+      "evidence": "docs/docs/ecosystem/integration.md"
+    },
+    {
+      "text": "A shipped shipment that is never received has no timeout. It stays shipped until a receipt arrives.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "Compliance violations are recorded and nothing acts on them. The scorecard is informational and never suspends a seller.",
+      "evidence": "docs/adr/0005-seller-compliance-scorecard.md"
+    },
+    {
+      "text": "Plan lines are not checked against whether the item is still live, because discontinued items are not followed.",
+      "evidence": "docs/docs/ddd/domain-events.md"
+    },
+    {
+      "text": "Accepting placement advice drives nothing downstream. The seller ships by hand through the normal plan flow.",
+      "evidence": "docs/adr/0012-the-placement-advisory.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Placement optimisation can follow in a later decision, once the advice has consumers.",
+      "evidence": "docs/adr/0012-the-placement-advisory.md"
+    },
+    {
+      "text": "A minimum number of receipts before a seller's tier counts, if a machine ever reads the tier.",
+      "evidence": "docs/adr/0005-seller-compliance-scorecard.md"
+    }
+  ]
+}

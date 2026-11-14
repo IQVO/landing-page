@@ -1,0 +1,355 @@
+{
+  "context": "shopping-cart",
+  "oneLine": "Holds a shopper's cart before checkout: lines, destination, chosen delivery offers and a non-binding estimate. Closes the cart once checkout completes.",
+  "pivotal": [
+    "CartLineAdded",
+    "CartDeliveryQuoted",
+    "CartCheckedOut",
+    "CartAbandoned"
+  ],
+  "rows": [
+    {
+      "title": "Start a cart",
+      "story": "A shopper, signed in or not, opens an empty cart. Nothing is announced to other contexts.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "CreateCart",
+        "operationId": "createCart"
+      },
+      "aggregate": "Cart",
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/cart.go"
+      ]
+    },
+    {
+      "title": "Add an item to the cart",
+      "story": "The shopper adds an item. It must be known, priced and not discontinued. Adding an item already in the cart merges the quantities, which must stay between 1 and 99.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "reads": [
+        "Purchasable items"
+      ],
+      "command": {
+        "name": "AddLine",
+        "operationId": "addCartLine"
+      },
+      "aggregate": "Cart",
+      "events": [
+        "CartLineAdded"
+      ],
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/lines.go",
+        "internal/domain/cart/events.go"
+      ]
+    },
+    {
+      "title": "Change a quantity",
+      "story": "The shopper sets a new quantity for a line. Any change to the lines throws away the delivery offers and selections, so they have to be asked for again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "SetLineQuantity",
+        "operationId": "setCartLineQuantity"
+      },
+      "aggregate": "Cart",
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/lines.go"
+      ]
+    },
+    {
+      "title": "Remove an item",
+      "story": "The shopper removes a line. Like any change to the lines, it clears the delivery offers and selections. Nothing is announced.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "RemoveLine",
+        "operationId": "removeCartLine"
+      },
+      "aggregate": "Cart",
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/lines.go"
+      ]
+    },
+    {
+      "title": "Say where it should be delivered",
+      "story": "The shopper gives a destination postal prefix. Until then the estimate shows only the item total; delivery and tax appear once a destination is set.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "SetDestination",
+        "operationId": "setCartDestination"
+      },
+      "aggregate": "Cart",
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/cart.go",
+        "internal/domain/estimate/estimate.go"
+      ]
+    },
+    {
+      "title": "Get delivery offers",
+      "story": "The cart asks delivery-promise for delivery offers for its lines and destination, and keeps them. Offers hold no capacity, they are facts frozen at quote time.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "reads": [
+        "Delivery offers asked from delivery-promise"
+      ],
+      "command": {
+        "name": "QuoteDelivery",
+        "operationId": "quoteCartDelivery"
+      },
+      "aggregate": "Cart",
+      "events": [
+        "CartDeliveryQuoted"
+      ],
+      "evidence": [
+        "internal/application/usecases/quote_delivery.go",
+        "internal/domain/cart/quote.go",
+        "internal/domain/cart/events.go"
+      ]
+    },
+    {
+      "title": "Choose a delivery offer",
+      "story": "The shopper picks one offer for each shipment group. An offer that is not part of the current quote is refused. The cart is ready for checkout when every group has an offer and none has expired.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "SelectDelivery",
+        "operationId": "selectCartDelivery"
+      },
+      "aggregate": "Cart",
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/delivery.go"
+      ]
+    },
+    {
+      "title": "Merge a guest cart after sign-in",
+      "story": "When a guest signs in, the guest cart's lines move into the shopper's open cart and the guest cart is closed as merged. Quantities add up, capped at 99.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "MergeInto",
+        "operationId": "mergeCartInto"
+      },
+      "aggregate": "Cart",
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/lifecycle.go"
+      ]
+    },
+    {
+      "title": "Take over the offers of a checkout requote",
+      "story": "When checkout finds that the offers have to be requoted, it can write the new ones into the cart. They replace the quote and are selected for every group, with no call to delivery-promise.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Checkout, for a shopper"
+      },
+      "command": {
+        "name": "AcceptRequotedOffers",
+        "operationId": "acceptRequotedOffers"
+      },
+      "aggregate": "Cart",
+      "evidence": [
+        "internal/application/usecases/cart_commands.go",
+        "internal/domain/cart/requote.go"
+      ]
+    },
+    {
+      "title": "Keep the item list",
+      "story": "offer-availability announces new and discontinued catalogue items. The cart keeps a copy of which items exist and which are discontinued, so adding an item needs no live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemCreated"
+      },
+      "policy": "Whenever an item is created or discontinued, update what the cart knows of it",
+      "updates": [
+        "Purchasable items"
+      ],
+      "command": {
+        "name": "ApplyCatalogItemCreated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/adapters/inbound/kafka/handlers.go"
+      ]
+    },
+    {
+      "title": "Keep the item prices",
+      "story": "pricing announces each item's current price, and withdraws it when an item can no longer be sold. The cart keeps the newest price, and an item without a price cannot be added.",
+      "trigger": {
+        "kind": "external",
+        "system": "pricing",
+        "event": "ItemPriceChanged"
+      },
+      "policy": "Whenever a price changes or is withdrawn, keep it if its version is newer",
+      "updates": [
+        "Purchasable items",
+        "Estimate prices"
+      ],
+      "command": {
+        "name": "ApplyItemPriceChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/adapters/inbound/kafka/handlers_pricing.go"
+      ]
+    },
+    {
+      "title": "Keep the delivery charges",
+      "story": "pricing publishes the charge for each delivery speed. The cart replaces its copy and uses it to estimate the delivery cost. Only the estimate moves; the cart's own delivery offers are left alone.",
+      "trigger": {
+        "kind": "external",
+        "system": "pricing",
+        "event": "DeliveryChargeScheduleChanged"
+      },
+      "policy": "Whenever a charge schedule is published, replace the stored one if it is newer",
+      "updates": [
+        "Estimate delivery charges"
+      ],
+      "command": {
+        "name": "ApplyDeliveryChargeScheduleChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/adapters/inbound/kafka/handlers_pricing.go"
+      ]
+    },
+    {
+      "title": "Keep the tax rates",
+      "story": "pricing publishes the tax rates by destination postal prefix. The cart replaces its copy and uses it for the estimate, which is labelled non-binding.",
+      "trigger": {
+        "kind": "external",
+        "system": "pricing",
+        "event": "TaxTableChanged"
+      },
+      "policy": "Whenever a tax table is published, replace the stored one if it is newer",
+      "updates": [
+        "Estimate tax rates"
+      ],
+      "command": {
+        "name": "ApplyTaxTableChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/adapters/inbound/kafka/handlers_pricing.go"
+      ]
+    },
+    {
+      "title": "Close the cart when checkout completes",
+      "story": "checkout reports that the purchase went through. The open cart is closed as checked out. A cart that is unknown or not open only gets a warning in the log.",
+      "trigger": {
+        "kind": "external",
+        "system": "checkout",
+        "event": "CheckoutCompleted"
+      },
+      "policy": "Whenever a checkout completes, close the cart as checked out",
+      "command": {
+        "name": "CloseOnCheckoutCompleted",
+        "via": "policy"
+      },
+      "aggregate": "Cart",
+      "events": [
+        "CartCheckedOut"
+      ],
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/domain/cart/lifecycle.go",
+        "internal/adapters/inbound/kafka/handlers.go"
+      ]
+    },
+    {
+      "title": "Abandon carts nobody touches",
+      "story": "A sweep closes every open cart that has not changed for 30 days as abandoned and announces it.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Abandon sweep"
+      },
+      "policy": "Every sweep, an open cart unchanged for 30 days is abandoned",
+      "command": {
+        "name": "AbandonInactive",
+        "via": "timer"
+      },
+      "aggregate": "Cart",
+      "events": [
+        "CartAbandoned"
+      ],
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/domain/cart/lifecycle.go",
+        "internal/adapters/inbound/scheduler/scheduler.go"
+      ]
+    },
+    {
+      "title": "Delete old closed carts",
+      "story": "A second sweep deletes carts that are no longer open and have not changed for 30 days. Nothing is announced, so an idle cart is gone about 60 days after its last change.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Purge sweep"
+      },
+      "policy": "Every sweep, a closed cart unchanged for 30 days is deleted",
+      "command": {
+        "name": "PurgeAbandonedCarts",
+        "via": "timer"
+      },
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/adapters/inbound/scheduler/scheduler.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Only adding a line, quoting, abandoning and checking out publish an event. Removals, quantity changes, destinations, selections and merges raise nothing.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "The cart accepts any known, priced, undiscontinued item without checking stock. It is lenient on purpose: checkout's binding price quote is the gate.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "No context reads the cart's events. Whether a sibling should ever consume one is undecided.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "The route that lets checkout write a requote into the cart has no caller yet in the local checkouts.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Promotions inside the estimate are a later phase and would add complexity to the cart.",
+      "evidence": "docs/docs/ddd/subdomain-classification.md"
+    },
+    {
+      "text": "A deferred identity context would take over the guest-first shopper ids and the cart merge the cart handles today.",
+      "evidence": "docs/docs/ddd/subdomain-classification.md"
+    }
+  ]
+}

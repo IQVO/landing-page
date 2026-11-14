@@ -1,0 +1,435 @@
+{
+  "context": "exception-management",
+  "oneLine": "Gives every problem another context detects one owner: a case with severity, queue, deadline and root cause. Cases only ever start from a fact.",
+  "pivotal": [
+    "ExceptionOpened",
+    "ExceptionTriaged",
+    "ExceptionAssigned",
+    "ExceptionResolved",
+    "ExceptionAutoResolved"
+  ],
+  "rows": [
+    {
+      "title": "Open a case for a missed cut-off",
+      "story": "A task is past its cut-off time. The first report opens a case with the severity, queue and deadline its policy sets. The report repeats at every sweep, so a repeat only adds to the count. A diverted or wrongly weighed package works the same way.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCPTMissed"
+      },
+      "policy": "Whenever a task misses its cut-off, open a case, or count it on the case already open",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_or_touch.go",
+        "internal/application/usecases/consume_fact.go",
+        "internal/adapters/inbound/kafka/fulfillment_consumer.go",
+        "internal/domain/exceptioncase/case.go"
+      ]
+    },
+    {
+      "title": "Triage a case",
+      "story": "An operator sets the severity and the queue of a case. It works on an escalated case too. A resolved case refuses it.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "TriageException",
+        "operationId": "triageException"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionTriaged"
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/exceptioncase/case.go"
+      ]
+    },
+    {
+      "title": "Assign a case to an owner",
+      "story": "An operator gives the case an owner. It can be reassigned until the case is resolved.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "AssignException",
+        "operationId": "assignException"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionAssigned"
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/exceptioncase/case.go"
+      ]
+    },
+    {
+      "title": "Resolve a case with a root cause",
+      "story": "An operator closes the case with a resolution code and a root cause. Resolved is final: later commands are refused, and a later matching fact only adds to the count, it never reopens the case.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "ResolveException",
+        "operationId": "resolveException"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionResolved"
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/exceptioncase/case.go"
+      ]
+    },
+    {
+      "title": "Set how a kind of problem is handled",
+      "story": "An operator declares the severity, queue, deadline in minutes and an optional auto-close rule for one kind of fact. Each declaration is a new version. Cases already open keep what they were opened with.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DeclareExceptionPolicy",
+        "operationId": "declareExceptionPolicy"
+      },
+      "aggregate": "Policy",
+      "events": [
+        "ExceptionPolicyDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/declare_policy.go",
+        "internal/domain/exceptionpolicy/policy.go"
+      ]
+    },
+    {
+      "title": "Open a case for a work backlog",
+      "story": "wes-work-planning raises an alarm when the waiting work on a process path passes its threshold. The case is kept per path, and the alarm carries nothing but the path.",
+      "trigger": {
+        "kind": "external",
+        "system": "wes-work-planning",
+        "event": "BacklogThresholdBreached"
+      },
+      "policy": "Whenever a backlog threshold is breached, open a case for that path, or count it on the open one",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_or_touch.go",
+        "internal/adapters/inbound/kafka/work_planning_consumer.go"
+      ]
+    },
+    {
+      "title": "Open a case for a late network order",
+      "story": "An order sent to another site is at risk of missing its acknowledgement deadline, or its hold was cancelled as orphaned. One case is kept per network order. The report repeats while the risk lasts.",
+      "trigger": {
+        "kind": "external",
+        "system": "network-fulfillment",
+        "event": "AcknowledgementDeadlineAtRisk"
+      },
+      "policy": "Whenever a network order is at risk, open a case for it, or count it on the open one",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_or_touch.go",
+        "internal/adapters/inbound/kafka/network_fulfillment_consumer.go"
+      ]
+    },
+    {
+      "title": "Open a case for an unexpected return",
+      "story": "A return arrives that nobody announced. One case is kept per return receipt.",
+      "trigger": {
+        "kind": "external",
+        "system": "returns-processing",
+        "event": "UnexpectedReturnReceived"
+      },
+      "policy": "Whenever an unexpected return is received, open a case for its receipt, or count it on the open one",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_or_touch.go",
+        "internal/adapters/inbound/kafka/returns_consumer.go"
+      ]
+    },
+    {
+      "title": "Open a case for a carton problem",
+      "story": "Receiving reports a carton that does not match its ASN. Missing, unexpected or mismatched cartons go to the problem-solve queue. Unlabelled or over-limit ones go to the receiving lead as low-priority information.",
+      "trigger": {
+        "kind": "external",
+        "system": "inbound-receiving",
+        "event": "CartonDiscrepancyRaised"
+      },
+      "policy": "Whenever a carton discrepancy is raised, open one case per receipt, carton and kind, routed by kind",
+      "reads": [
+        "Routes by kind of carton problem"
+      ],
+      "command": {
+        "name": "OpenCartonDiscrepancy",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/carton_discrepancy.go",
+        "internal/adapters/inbound/kafka/carton_discrepancy_consumer.go",
+        "docs/adr/0006-carton-discrepancy-consumer-and-routing.md"
+      ]
+    },
+    {
+      "title": "Open a case for a yard problem",
+      "story": "A trailer's seal differs from the one declared, a visit was turned away, a trailer overstayed, or a yard audit found a trailer missing. Each goes to the yard supervisor. A seal mismatch is the only high-severity one.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "SealExceptionRaised"
+      },
+      "policy": "Whenever the yard reports a seal mismatch, rejected visit, long stay or audit finding, open a case",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/yard_check.go",
+        "internal/adapters/inbound/kafka/yard_exceptions_consumer.go",
+        "docs/adr/0010-yard-exceptions-consumers-and-routing.md"
+      ]
+    },
+    {
+      "title": "Open a case for a missed appointment",
+      "story": "A carrier never showed for its dock appointment. One case is kept per appointment and goes to the dock planner.",
+      "trigger": {
+        "kind": "external",
+        "system": "dock-scheduling",
+        "event": "DockAppointmentNoShow"
+      },
+      "policy": "Whenever an appointment is a no-show, open a case for it, or count it on the open one",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_or_touch.go",
+        "internal/adapters/inbound/kafka/dock_scheduling_exceptions_consumer.go",
+        "docs/adr/0010-yard-exceptions-consumers-and-routing.md"
+      ]
+    },
+    {
+      "title": "Open a case for a stock problem",
+      "story": "A bin count disagrees with the books, an item cannot be found, or a unit is put on hold. Each opens a case. A held unit gets exactly one, however often it is reported.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "DiscrepancyDetected"
+      },
+      "policy": "Whenever stock is in doubt or held, open a case for the bin or unit, or count it on the open one",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_or_touch.go",
+        "internal/adapters/inbound/kafka/inventory_exceptions_consumer.go",
+        "internal/adapters/inbound/kafka/held_stock_consumer.go"
+      ]
+    },
+    {
+      "title": "Open a case for a package that missed its truck",
+      "story": "A package was not loaded by its cut-off or by the trailer's departure. One case is kept per package, even if it misses a later load too. It goes to the problem solvers.",
+      "trigger": {
+        "kind": "external",
+        "system": "outbound-shipping",
+        "event": "PackageMissedLoad"
+      },
+      "policy": "Whenever a package misses its load, open a case for the package, or count it on the open one",
+      "reads": [
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "OpenOrTouchException",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_or_touch.go",
+        "internal/adapters/inbound/kafka/outbound_shipping_consumer.go",
+        "docs/adr/0011-package-missed-load-consumer.md"
+      ]
+    },
+    {
+      "title": "Escalate a case past its deadline",
+      "story": "A sweep, once a minute by default, flags every open case that is past its deadline. Escalation is a flag set once per case. It never blocks work: the case can still be triaged, assigned and resolved.",
+      "trigger": {
+        "kind": "timer",
+        "name": "SLA sweep"
+      },
+      "policy": "Every sweep, any open case past its deadline and not yet flagged is escalated, once",
+      "command": {
+        "name": "SweepSLABreaches",
+        "via": "timer"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionEscalated"
+      ],
+      "evidence": [
+        "internal/application/usecases/sweep_sla.go",
+        "internal/domain/exceptioncase/case.go"
+      ]
+    },
+    {
+      "title": "Close a case when the order is re-promised",
+      "story": "order-management re-promises an order. If an open cut-off case belongs to that order, and its policy has an auto-close rule whose time window has not passed, the case closes itself. No match leaves it open.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-management",
+        "event": "OrderRepromised"
+      },
+      "policy": "Whenever an order is re-promised, close the matching open case if its policy rule allows",
+      "reads": [
+        "Open cases",
+        "Handling policy for this kind of fact"
+      ],
+      "command": {
+        "name": "AutoResolveOnCorrelation",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionAutoResolved"
+      ],
+      "evidence": [
+        "internal/application/usecases/auto_resolve.go",
+        "internal/adapters/inbound/kafka/order_correlation_consumer.go",
+        "internal/domain/exceptionpolicy/rule.go"
+      ]
+    },
+    {
+      "title": "Close a held-stock case when the hold ends",
+      "story": "When held stock is released, returned to the vendor or scrapped, its case closes with the outcome in the note. Rework keeps the case open and counts another round.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "StockDispositioned"
+      },
+      "policy": "Whenever held stock is released, returned or scrapped, close the case of that unit",
+      "reads": [
+        "Open cases"
+      ],
+      "command": {
+        "name": "AutoResolveHeldStock",
+        "via": "policy"
+      },
+      "aggregate": "Case",
+      "events": [
+        "ExceptionAutoResolved"
+      ],
+      "evidence": [
+        "internal/application/usecases/held_stock.go",
+        "internal/adapters/inbound/kafka/held_stock_consumer.go",
+        "docs/adr/0012-held-stock-exception-cases.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A fact whose kind has no declared handling policy is logged and skipped, not turned into a case.",
+      "evidence": "docs/adr/0006-carton-discrepancy-consumer-and-routing.md"
+    },
+    {
+      "text": "Understaffed paths and stuck transfers are planned sources that are not built: they exist only on their producers' reporting streams.",
+      "evidence": "docs/adr/0001-exception-management-bounded-context.md"
+    },
+    {
+      "text": "A person cannot open a case by hand. Manual creation is left to a later version, and POST /exceptions is always refused.",
+      "evidence": "docs/adr/0001-exception-management-bounded-context.md"
+    },
+    {
+      "text": "Held units booked before the consumer first ran get no case. Nothing rebuilds history that was already dropped.",
+      "evidence": "docs/adr/0012-held-stock-exception-cases.md"
+    },
+    {
+      "text": "Routing works per kind of fact, not per detail. Another queue for one yard finding or one reason needs its own policy.",
+      "evidence": "docs/adr/0010-yard-exceptions-consumers-and-routing.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "labor-performance may read ExceptionResolved later, to relate cases to labour cost.",
+      "evidence": "docs/adr/0001-exception-management-bounded-context.md"
+    },
+    {
+      "text": "A missed-load case could auto-close when the package loads on its next load, if a later fleet decision wants that.",
+      "evidence": "docs/adr/0011-package-missed-load-consumer.md"
+    },
+    {
+      "text": "If repeated rework rounds become noise on a held-stock case, a rework-aware note is a possible follow-up.",
+      "evidence": "docs/adr/0012-held-stock-exception-cases.md"
+    }
+  ]
+}

@@ -1,0 +1,414 @@
+{
+  "context": "vendor-connectivity",
+  "oneLine": "The network's front door for vendors: issues purchase orders to vendor-run nodes and takes their answers, labels, shipments, stock feeds and inbound receipts.",
+  "pivotal": [
+    "PurchaseOrderIssued",
+    "PurchaseOrderAccepted",
+    "VendorShipmentConfirmed",
+    "InboundReceiptSubmitted"
+  ],
+  "rows": [
+    {
+      "title": "Onboard a vendor",
+      "story": "A partner manager creates a vendor account and sets how long the vendor has to acknowledge each purchase order. Onboarding the same vendor again returns the existing account.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network partner manager"
+      },
+      "command": {
+        "name": "OnboardVendor",
+        "operationId": "onboardVendor"
+      },
+      "aggregate": "Account",
+      "events": [
+        "VendorOnboarded"
+      ],
+      "evidence": [
+        "internal/application/usecases/vendors.go",
+        "internal/domain/vendor/vendor.go"
+      ]
+    },
+    {
+      "title": "Suspend a vendor",
+      "story": "A partner manager suspends a vendor. While suspended, every write the vendor sends is refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network partner manager"
+      },
+      "command": {
+        "name": "SuspendVendor",
+        "operationId": "suspendVendor"
+      },
+      "aggregate": "Account",
+      "events": [
+        "VendorSuspended"
+      ],
+      "evidence": [
+        "internal/application/usecases/vendors.go",
+        "internal/domain/vendor/vendor.go"
+      ]
+    },
+    {
+      "title": "Reinstate a vendor",
+      "story": "A partner manager lifts the suspension and the vendor can write again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network partner manager"
+      },
+      "command": {
+        "name": "ReinstateVendor",
+        "operationId": "reinstateVendor"
+      },
+      "aggregate": "Account",
+      "events": [
+        "VendorReinstated"
+      ],
+      "evidence": [
+        "internal/application/usecases/vendors.go",
+        "internal/domain/vendor/vendor.go"
+      ]
+    },
+    {
+      "title": "Issue a purchase order",
+      "story": "When a group is released to a vendor-run node, one purchase order is issued to that node's vendor. It names the stock owner of every line and the time by which the vendor must answer.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentReleasedToNode"
+      },
+      "policy": "Whenever a group is released to a vendor-run node, issue one purchase order for it",
+      "reads": [
+        "Vendor nodes"
+      ],
+      "command": {
+        "name": "IssueOnRelease",
+        "via": "policy"
+      },
+      "aggregate": "PurchaseOrder",
+      "events": [
+        "PurchaseOrderIssued"
+      ],
+      "then": [
+        {
+          "system": "node-performance",
+          "does": "tracks the order for the node's scorecard"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/orders.go",
+        "internal/domain/purchaseorder/purchaseorder.go",
+        "internal/adapters/inbound/kafka/consumers.go"
+      ]
+    },
+    {
+      "title": "Acknowledge a purchase order",
+      "story": "The vendor's system polls its orders, then accepts or rejects the whole order in one call. It must cover every line and answer before the deadline. The call returns a transaction id, not the result.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor system"
+      },
+      "reads": [
+        "Purchase orders"
+      ],
+      "command": {
+        "name": "SubmitAcknowledgement",
+        "operationId": "submitAcknowledgement"
+      },
+      "aggregate": "PurchaseOrder",
+      "evidence": [
+        "internal/application/usecases/orders.go",
+        "internal/domain/purchaseorder/commands_ack.go"
+      ]
+    },
+    {
+      "title": "Settle the vendor's queued writes",
+      "story": "A processor runs each queued vendor write once it is due and records the outcome. A successful acknowledgement becomes an accepted or rejected order, a successful shipment confirmation a shipped one.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Submission processor"
+      },
+      "policy": "Whenever a queued vendor write is due, run it and apply its outcome to the purchase order",
+      "command": {
+        "name": "ProcessSubmission",
+        "via": "timer"
+      },
+      "aggregate": "Submission",
+      "events": [
+        "SubmissionProcessed",
+        "PurchaseOrderAccepted",
+        "PurchaseOrderRejected",
+        "VendorShipmentConfirmed"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "locks the group on acceptance, tries another node on rejection, marks it shipped"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "records a shipment-confirmed scan for each tracking number"
+        },
+        {
+          "system": "node-performance",
+          "does": "counts the answer and the shipment for the node's scorecard"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/submissions.go",
+        "internal/domain/submission/submission.go",
+        "internal/domain/purchaseorder/commands_shipment.go"
+      ]
+    },
+    {
+      "title": "Expire an order nobody answered",
+      "story": "A sweep finds issued orders past their acknowledge-by time. They expire so order-sourcing can try another node.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Expiry sweep"
+      },
+      "policy": "Every sweep, an issued order past its acknowledge-by time expires",
+      "command": {
+        "name": "ExpireUnacknowledged",
+        "via": "timer"
+      },
+      "aggregate": "PurchaseOrder",
+      "events": [
+        "PurchaseOrderExpired"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "excludes the node and searches again"
+        },
+        {
+          "system": "node-performance",
+          "does": "counts the missed deadline for the node's scorecard"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/orders.go",
+        "internal/domain/purchaseorder/purchaseorder.go"
+      ]
+    },
+    {
+      "title": "Cancel an order when sourcing cancels",
+      "story": "When order-sourcing cancels a group, its purchase order is cancelled, but only while it still waits for the vendor's answer. After the vendor answered, the order stays and the refusal is only logged.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentCancelled"
+      },
+      "policy": "Whenever a group is cancelled, cancel its purchase order if it is still waiting for an answer",
+      "command": {
+        "name": "CancelOnSourcingCancel",
+        "via": "policy"
+      },
+      "aggregate": "PurchaseOrder",
+      "events": [
+        "PurchaseOrderCancelled"
+      ],
+      "evidence": [
+        "internal/application/usecases/orders.go",
+        "internal/domain/purchaseorder/purchaseorder.go"
+      ]
+    },
+    {
+      "title": "Cancel an order when a release is withdrawn",
+      "story": "When order-sourcing withdraws a merged release, the purchase order of exactly that release is cancelled, never a newer one for the same group.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentReleaseWithdrawn"
+      },
+      "policy": "Whenever a release is withdrawn, cancel the purchase order of that release if it is still waiting",
+      "command": {
+        "name": "CancelOnReleaseWithdrawn",
+        "via": "policy"
+      },
+      "aggregate": "PurchaseOrder",
+      "events": [
+        "PurchaseOrderCancelled"
+      ],
+      "evidence": [
+        "internal/application/usecases/orders_withdrawn.go",
+        "docs/adr/0013-cancel-the-purchase-order-when-a-release-is-withdrawn.md"
+      ]
+    },
+    {
+      "title": "Request shipping labels",
+      "story": "For an accepted order the vendor asks for one label per package. This is the one write answered at once: one label is issued per package by shipping-and-tracking, and labels already issued are returned again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor system"
+      },
+      "command": {
+        "name": "RequestLabel",
+        "operationId": "requestLabel"
+      },
+      "aggregate": "PurchaseOrder",
+      "then": [
+        {
+          "system": "shipping-and-tracking",
+          "does": "is called right away to issue one label per package"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/orders.go",
+        "internal/domain/purchaseorder/commands_labels.go"
+      ]
+    },
+    {
+      "title": "Confirm a shipment",
+      "story": "The vendor confirms that an accepted order shipped. The tracking numbers must be exactly the ones of the labels issued; the confirmation is queued and settled later.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor system"
+      },
+      "command": {
+        "name": "SubmitShipmentConfirmation",
+        "operationId": "submitShipmentConfirmation"
+      },
+      "aggregate": "PurchaseOrder",
+      "evidence": [
+        "internal/application/usecases/orders.go",
+        "internal/domain/purchaseorder/commands_shipment.go"
+      ]
+    },
+    {
+      "title": "Register a node or send its stock",
+      "story": "The vendor registers a node, declares its operating profile or sends an inventory feed. Each write is queued and settled later; node-topology and offer-availability do the real work and the answer carries the new node id.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor system"
+      },
+      "command": {
+        "name": "RegisterVendorNode",
+        "operationId": "registerVendorNode"
+      },
+      "aggregate": "Submission",
+      "evidence": [
+        "internal/application/usecases/submissions.go",
+        "internal/domain/submission/submission.go"
+      ]
+    },
+    {
+      "title": "Report what the dock received",
+      "story": "The vendor reports cartons received for an inbound shipment. The report is checked against the shipment's manifest; counting more or fewer units than listed is reported, never refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor system"
+      },
+      "reads": [
+        "Inbound shipments copy"
+      ],
+      "command": {
+        "name": "SubmitInboundReceipt",
+        "operationId": "submitInboundReceipt"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "InboundReceiptSubmitted"
+      ],
+      "then": [
+        {
+          "system": "seller-inbound",
+          "does": "records the findings and closes the inbound shipment"
+        },
+        {
+          "system": "node-performance",
+          "does": "uses the carton findings for the node's inbound accuracy score"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/inbound.go",
+        "internal/domain/inbound/receipt.go",
+        "docs/adr/0005-inbound-shipments-receipts-and-catalog-packaging.md"
+      ]
+    },
+    {
+      "title": "Keep the inbound shipments copy",
+      "story": "Seller-inbound announces shipments with their carton manifests. A copy lets the vendor poll what is on its way and lets receipts be checked without a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "seller-inbound",
+        "event": "InboundShipmentShipped"
+      },
+      "policy": "Whenever an inbound shipment is labelled, shipped or received, update the local shipments copy",
+      "updates": [
+        "Inbound shipments copy"
+      ],
+      "command": {
+        "name": "OnInboundShipmentShipped",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/inbound.go",
+        "internal/adapters/inbound/kafka/inbound_consumers.go"
+      ]
+    },
+    {
+      "title": "Keep the vendor node list",
+      "story": "Node-topology announces nodes, profiles and status changes. A copy tells which nodes belong to which vendor and each node's handling time, used to set the answer deadline.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeActivated"
+      },
+      "policy": "Whenever a node is registered, profiled, activated, suspended or retired, update the local node list",
+      "updates": [
+        "Vendor nodes"
+      ],
+      "command": {
+        "name": "OnNodeStatus",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/queries.go",
+        "internal/adapters/inbound/kafka/consumers.go"
+      ]
+    },
+    {
+      "title": "Keep the listings and packaging copy",
+      "story": "Offer-availability announces listings and the pack levels of each catalogue item. Listings let stock feeds be checked; pack levels appear on purchase order lines.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingCreated"
+      },
+      "policy": "Whenever a listing is created, keep it so a stock feed can be checked against its node",
+      "updates": [
+        "Listings"
+      ],
+      "command": {
+        "name": "OnListingCreated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/queries.go",
+        "internal/adapters/inbound/kafka/consumers.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A cancel that arrives after the vendor answered is refused and only logged: nobody is told, and the vendor may still ship.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "The vendor's identity is a request field, not authentication. The ownership check only keeps a vendor away from other vendors' nodes inside the cluster.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A withdrawn release can be accepted in the one message hop before the cancel arrives: the vendor then holds an order for the old merged lines.",
+      "evidence": "docs/adr/0013-cancel-the-purchase-order-when-a-release-is-withdrawn.md"
+    },
+    {
+      "text": "A receipt is judged when it is sent, not again when processed, so two receipts for one shipment can both be accepted.",
+      "evidence": "docs/adr/0005-inbound-shipments-receipts-and-catalog-packaging.md"
+    },
+    {
+      "text": "The vendor-account events (onboarded, suspended, reinstated) have no consumer that acts on them yet.",
+      "evidence": "apis/asyncapi.yaml"
+    }
+  ]
+}

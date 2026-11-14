@@ -1,0 +1,511 @@
+{
+  "context": "shipping-and-tracking",
+  "oneLine": "Issues shipping labels and keeps one timeline per package, from handover to delivery, return or loss.",
+  "pivotal": [
+    "LabelIssued",
+    "PackageHandedOver",
+    "PackageDelivered",
+    "PackageExceptionRaised",
+    "PackageLost"
+  ],
+  "rows": [
+    {
+      "title": "Issue a label for a package",
+      "story": "A vendor asks for a label for one package of a purchase order. The shipping address is fetched live and checked; if it looks like a placeholder the label is refused. Otherwise the label and the package's journey start together.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor (through partner connectivity)"
+      },
+      "reads": [
+        "Shipping address of the order"
+      ],
+      "command": {
+        "name": "IssueLabel",
+        "operationId": "issueLabel"
+      },
+      "aggregate": "ShippingLabel",
+      "events": [
+        "LabelIssued"
+      ],
+      "then": [
+        {
+          "system": "linehaul-transportation",
+          "does": "adds the tracking number to the booking's expected volume"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "creates the package row that the order's tracking view reads"
+        },
+        {
+          "system": "last-mile-delivery",
+          "does": "keeps the opaque stop id and postal prefix so it can group packages into stops"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/labels.go",
+        "internal/domain/label/label.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Void a label",
+      "story": "An operator voids a label that should not be used. It only works while the package is still waiting for pickup; once it is handed over the void is refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "VoidLabel",
+        "operationId": "voidLabel"
+      },
+      "aggregate": "ShippingLabel",
+      "events": [
+        "LabelVoided"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "marks the package as voided"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "drops the tracking number from the expected volume; the booking stays"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/labels.go",
+        "internal/domain/label/label.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Record a scan by hand",
+      "story": "An operator adds a scan to a package's journey. It follows the same rules as scans from partners: an old, repeated or impossible scan is refused, and a handover or delivery scan also announces that milestone.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RecordScan",
+        "operationId": "recordScan"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned",
+        "PackageHandedOver",
+        "PackageDelivered"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "adds the scan to the order's tracking timeline"
+        },
+        {
+          "system": "node-performance",
+          "does": "judges a handover against the purchase order's ship-by date"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "records a delivery and judges the promise when it was the last package"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "records a delivered package; the last one delivers the assignment"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Note the vendor's shipment confirmation",
+      "story": "The vendor says a shipment has left. Each package on it gets a 'shipment confirmed' scan, but its journey does not move: the handover waits for the carrier's pickup.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "VendorShipmentConfirmed"
+      },
+      "policy": "Whenever a vendor confirms a shipment, add one scan per tracking number",
+      "command": {
+        "name": "ApplyScans",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "adds the scan to the order's tracking timeline"
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Hand the package over at pickup",
+      "story": "A load leaves its origin. The first pickup departure of a labelled package hands it over to the carrier; any later departure is just a movement.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "LoadDeparted"
+      },
+      "policy": "Whenever a load departs, add one scan per package; the first pickup hands it over",
+      "command": {
+        "name": "ApplyScans",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned",
+        "PackageHandedOver"
+      ],
+      "then": [
+        {
+          "system": "node-performance",
+          "does": "judges the handover against the purchase order's ship-by date"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "adds the scan to the order's tracking timeline"
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Follow the package through the middle mile",
+      "story": "A load arrives. At a delivery station the package becomes ready to go out; at any other hub it stays in transit.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "LoadArrived"
+      },
+      "policy": "Whenever a load arrives, add one scan per package: station arrival or transit arrival",
+      "command": {
+        "name": "ApplyScans",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "adds the scan to the order's tracking timeline"
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Show the package out for delivery",
+      "story": "The delivery station sends the package out on a route. The journey moves to out for delivery.",
+      "trigger": {
+        "kind": "external",
+        "system": "last-mile-delivery",
+        "event": "PackageOutForDelivery"
+      },
+      "policy": "Whenever a package goes out for delivery, add an out-for-delivery scan",
+      "command": {
+        "name": "ApplyScans",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "adds the scan to the order's tracking timeline"
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers_lastmile.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Close the journey on delivery",
+      "story": "A delivery attempt ends. A successful one delivers the package and closes the journey; a failed one sends it back to the station and the journey stays open.",
+      "trigger": {
+        "kind": "external",
+        "system": "last-mile-delivery",
+        "event": "DeliveryAttempted"
+      },
+      "policy": "Whenever an attempt is made, add a delivered or failed scan to the journey",
+      "command": {
+        "name": "ApplyScans",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned",
+        "PackageDelivered"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "records the delivery and judges the promise when it was the last package"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "records a delivered package; the last one delivers the assignment"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "marks the package and its order group delivered"
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers_lastmile.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Return a package to the sender",
+      "story": "After repeated failed attempts, last-mile-delivery starts a return. A package waiting at the station becomes returned, which ends its journey.",
+      "trigger": {
+        "kind": "external",
+        "system": "last-mile-delivery",
+        "event": "PackageReturnInitiated"
+      },
+      "policy": "Whenever a return is started, mark the package at the station as returned",
+      "command": {
+        "name": "ReturnToSender",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageReturned"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "records the return and judges the promise broken"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "marks the package and its order group returned"
+        },
+        {
+          "system": "customer-payments",
+          "does": "refunds the order, or waits until its payment exists"
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers_lastmile.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Store the day-of delivery window",
+      "story": "When a route starts, last-mile-delivery gives each stop a time window. Every package of the stop keeps it; the window shows only while the package is out for delivery.",
+      "trigger": {
+        "kind": "external",
+        "system": "last-mile-delivery",
+        "event": "StopEtaWindowAssigned"
+      },
+      "policy": "Whenever a stop gets a time window, store it on each package of the stop",
+      "command": {
+        "name": "ApplyEtaWindows",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageEtaWindowAssigned"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "keeps the window for the order's tracking view unless a newer one exists"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/eta.go",
+        "internal/domain/journey/journey_eta.go",
+        "docs/adr/0013-day-of-eta-window-on-the-journey.md"
+      ]
+    },
+    {
+      "title": "Relay a delivery-point warning",
+      "story": "last-mile-delivery flags a delivery point after two failed attempts. It knows the stop, not the order, so this context passes the warning on for each package of the stop, without any address.",
+      "trigger": {
+        "kind": "external",
+        "system": "last-mile-delivery",
+        "event": "DeliveryPointFlagged"
+      },
+      "policy": "Whenever a delivery point is flagged, store the flag on each open package of the stop",
+      "command": {
+        "name": "RelayDeliveryPointFlag",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageDeliveryPointFlagged"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "keeps the flag on the package's tracking view so the shopper can be advised"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/point_flag.go",
+        "internal/domain/journey/journey_point_flag.go",
+        "docs/adr/0014-relay-the-delivery-point-flag-by-order-id.md"
+      ]
+    },
+    {
+      "title": "Raise an exception on silence",
+      "story": "A periodic sweep looks for open packages with no new scan for longer than their service tier allows. Each silent package gets one exception until a new scan arrives.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Silence sweep"
+      },
+      "policy": "Every sweep, any package silent past its window raises one exception",
+      "command": {
+        "name": "RaiseException",
+        "via": "timer"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageExceptionRaised"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "treats the exception as a risk to the promise and may re-promise"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "records the exception on the order's tracking view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sweep.go",
+        "internal/domain/journey/types.go",
+        "docs/adr/0002-aggregates-and-invariants.md"
+      ]
+    },
+    {
+      "title": "Declare a silent package lost",
+      "story": "If a package in transit stays silent for 48 hours after its exception, the same sweep declares it lost and closes its journey.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Silence sweep"
+      },
+      "policy": "Every sweep, an in-transit package with an unanswered exception for 48 hours is lost",
+      "command": {
+        "name": "DeclareLost",
+        "via": "timer"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageLost"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "records the loss and judges the promise broken"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "marks the package and its order group lost"
+        },
+        {
+          "system": "customer-payments",
+          "does": "refunds the order, or waits until its payment exists"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sweep.go",
+        "internal/domain/journey/types.go",
+        "docs/adr/0002-aggregates-and-invariants.md"
+      ]
+    },
+    {
+      "title": "Keep the product dimensions copy",
+      "story": "Every product that offer-availability creates leaves its size, weight and handling flags here. Nothing reads them yet.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemCreated"
+      },
+      "policy": "Whenever a catalogue item is created, store its dimensions and handling flags",
+      "updates": [
+        "Product dimensions"
+      ],
+      "command": {
+        "name": "RecordCatalogItem",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/housekeeping.go",
+        "internal/adapters/inbound/kafka/handlers.go",
+        "docs/adr/0002-aggregates-and-invariants.md"
+      ]
+    },
+    {
+      "title": "Delete old delivery addresses",
+      "story": "The saved, encrypted delivery address is deleted 30 days after its journey closes, whether delivered, returned, lost or voided.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Housekeeping sweep"
+      },
+      "policy": "Every housekeeping run, delete addresses of journeys closed over 30 days ago",
+      "command": {
+        "name": "PurgeShipTo",
+        "via": "timer"
+      },
+      "evidence": [
+        "internal/application/usecases/housekeeping.go",
+        "docs/adr/0002-aggregates-and-invariants.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Voiding a label and recording a scan by hand have no named caller: the routes are unauthenticated and the contracts name nobody.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A placeholder-looking address refuses the label, but no loop asks the shopper to fix it. That is deliberately left out.",
+      "evidence": "docs/adr/0011-label-time-address-deliverability-check.md"
+    },
+    {
+      "text": "News about a package this context never labelled is counted and dropped. Nothing keeps it for a later look.",
+      "evidence": "docs/docs/ddd/domain-events.md"
+    },
+    {
+      "text": "A delivery-point warning is never cleared by an event. It ends only when the package's journey ends.",
+      "evidence": "docs/adr/0014-relay-the-delivery-point-flag-by-order-id.md"
+    },
+    {
+      "text": "A restricted route through which partners could resolve the delivery address is not built.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "The product dimensions copy has no reader yet. It is kept so a printable label can use it later.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    }
+  ]
+}

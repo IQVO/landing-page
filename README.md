@@ -26,7 +26,8 @@ This README and the two ADRs are the whole documentation. The page itself is the
 | 07 Engineering | The engineering study in five numbers, links to it | `data/engineering.json` |
 | 08 Architecture | The architecture assessment in five numbers, links to it | `data/architecture.json` |
 | 09 Briefings | The executive briefings in five numbers, links to them | `data/briefings.json` |
-| 10 Docs | Links to the documentation and the GitHub organisation | `site.config.json` |
+| 10 EventStorming | The nine sticky colours, one real row, the counts, links to the big picture and the boards | `data/eventstorming.json` |
+| 11 Docs | Links to the documentation and the GitHub organisation | `site.config.json` |
 
 The **engineering study** (`/engineering/`, [ADR 0003](docs/adr/0003-engineering-study-pages.md)) is generated, not written:
 
@@ -39,6 +40,8 @@ The **engineering study** (`/engineering/`, [ADR 0003](docs/adr/0003-engineering
 The **architecture assessment** (`/architecture/`, [ADR 0004](docs/adr/0004-architecture-assessment-pages.md)) is generated the same way. It scores every repository against ten architectural fitness functions (Ford / Parsons / Kua; utility-tree shape after the SEI's ATAM): ports-and-adapters layout, domain purity, adapter symmetry, contract-first APIs, event-naming grammar, in-repo architecture tests, decision records, MCP isolation, test investment and CI green. `/architecture/` is the fleet matrix and method; `/architecture/projects/<repo>/` shows each project's checks, measured values, evidence and computed risk lines. `make architecture` recounts it from the sibling clones plus the same day's `engineering.json`; n/a checks are published as n/a.
 
 The **executive briefings** (`/briefings/`, [ADR 0005](docs/adr/0005-executive-briefing-pages.md)) quote the reveal.js decks committed in each repository (`executive/index.html`) and present them per program — WMS/WES, retail network, yard management and storefront — on landing-template pages. Each program page draws its event-flow diagram from the context registry's real routes and each briefed project draws its hexagon from the counted adapters; contexts without a deck are listed as "not yet briefed". `make briefings` recounts from the sibling clones plus the day's `engineering.json`/`architecture.json`.
+
+The **EventStorming pages** (`/eventstorming/`, [ADR 0006](docs/adr/0006-eventstorming-pages.md)) apply Alberto Brandolini's method to the whole ecosystem in the official sticky colours: a hub with the colour legend and a **big picture** wall of ten phases that touches every bounded context, then **one board per context** (`/eventstorming/contexts/<id>/`) with the pivotal events, every row (trigger, rule or facts, command, aggregate, events, who reacts next), hot spots and opportunities. The boards are a reconstruction from code and documentation, not a workshop. The hand-authored models live in `model/eventstorming/` (one JSON per context plus `ecosystem.json`); `make eventstorming` validates every sticky against `origin/develop` of the sibling repositories (events against AsyncAPI, commands against OpenAPI, aggregates against `internal/domain`, evidence paths against the git tree) and writes `data/eventstorming.json`. `node scripts/collect-eventstorming.mjs --digest <context>` prints what the sources say about one context and `--check <file>` validates one model.
 
 ## Architecture
 
@@ -64,6 +67,8 @@ scripts/
   architecture.mjs      renders the architecture assessment (overview + one page per project)
   collect-briefings.mjs  parses the committed executive decks (speaker notes) and joins the day's counts
   briefings.mjs          renders the briefings hub + one landing page per program
+  collect-eventstorming.mjs  proves every EventStorming board (model/eventstorming/*.json) against the sibling repos' sources
+  eventstorming.mjs      renders the EventStorming hub, the big picture and one board per context
   build.mjs             src/ -> dist/, content-hashes css/js, inlines the map data, renders /engineering/ and /architecture/
   check.mjs             the gate: links, ids, a11y basics, CSP, size budget, facts consistency
   serve.mjs             dev preview only
@@ -75,7 +80,7 @@ design/og-image.html    source of src/og-image.jpg
 Rules the build enforces (`scripts/check.mjs`): no external resource is ever loaded; no inline `<script>` or `style=""`, so the
 strict CSP in `deploy/security-headers.conf` holds; every link target exists; every image has `alt`; one `<h1>`; the domain
 counts sum to the context count; the map has exactly as many nodes and routes as the facts say; size budget (HTML 90 KiB,
-CSS 70 KiB, JS 50 KiB, fonts 200 KiB, total 700 KiB; the generated `/engineering/` pages have their own: 4 MB of HTML, 250 KB per page).
+CSS 90 KiB, JS 50 KiB, fonts 200 KiB, total 700 KiB; the generated `/engineering/` pages have their own: 4 MB of HTML, 250 KB per page; `/eventstorming/`: 2.5 MB, 180 KB per page).
 For the engineering study it also checks that every project and every week has its page, that per-project, per-month and per-week totals
 add up to the fleet totals, and that each study page keeps the study-project banner and the verbatim disclaimer.
 

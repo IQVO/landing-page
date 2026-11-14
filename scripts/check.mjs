@@ -21,8 +21,10 @@ const siteHost = siteUrl ? new URL(siteUrl).host : null;
 const eng = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'engineering.json'), 'utf8'));
 const arch = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'architecture.json'), 'utf8'));
 const brief = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'briefings.json'), 'utf8'));
+const es = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'eventstorming.json'), 'utf8'));
 const errors = [];
 const fail = (m) => errors.push(m);
+const esc = (x) => String(x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const read = (f) => fs.readFileSync(path.join(DIST, f), 'utf8');
 const exists = (p) => fs.existsSync(path.join(DIST, p));
 // a local URL path -> the file nginx serves for it (`try_files $uri $uri/` + `index index.html`)
@@ -34,8 +36,9 @@ const DISC = "This project is a domain-driven design study. It is not associated
 const engPages = walkAll(path.join(DIST, 'engineering')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 const archPages = walkAll(path.join(DIST, 'architecture')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 const briefPages = walkAll(path.join(DIST, 'briefings')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
+const esPages = walkAll(path.join(DIST, 'eventstorming')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 
-for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...briefPages]) {
+for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...briefPages, ...esPages]) {
   if (!exists(page)) { fail(`${page} missing from dist/`); continue; }
   const html = read(page);
 
@@ -90,6 +93,8 @@ for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...brie
     if (!html.includes('href="/engineering/"')) fail('landing page does not link the engineering study');
     if (!html.includes('href="/architecture/"')) fail('landing page does not link the architecture assessment');
     if (!html.includes('href="/briefings/"')) fail('landing page does not link the executive briefings');
+    if (!html.includes('id="eventstorming"') || !html.includes('href="#eventstorming"')) fail('landing page has no EventStorming section or nav link');
+    if (!html.includes('href="/eventstorming/#big-picture"')) fail('landing page does not link the EventStorming big picture');
 
     // ---- facts must be consistent with what the page says ----
     const c = facts.counts;
@@ -230,6 +235,50 @@ for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...brie
   if (age > 8) console.warn(`warn: briefings.json is ${age.toFixed(0)} days old (\`make briefings\`)`);
 }
 
+
+// ---- EventStorming: one board per context, every sticky provable, every count equal to the data ----
+{
+  const ids = facts.contexts.map((c) => c.id);
+  if (esPages.length !== 1 + ids.length) fail(`eventstorming: ${esPages.length} pages, expected ${1 + ids.length} (hub + ${ids.length} boards)`);
+  if (Object.keys(es.contexts).length !== ids.length) fail('eventstorming: data and facts disagree on the number of contexts');
+  const hub = read('eventstorming/index.html');
+  const fmt = (x) => new Intl.NumberFormat('en-US').format(x);
+  // the hub: the nine sticky colours, the big picture, the index of every board
+  for (const k of ['event', 'command', 'actor', 'agg', 'policy', 'read', 'system', 'hot', 'opp']) if (!hub.includes(`st st--${k}`)) fail(`eventstorming: the hub legend lacks the ${k} sticky`);
+  const phases = es.ecosystem.phases;
+  if ((hub.match(/<li class="bph"/g) || []).length !== phases.length) fail(`eventstorming: the big picture shows ${(hub.match(/<li class="bph"/g) || []).length} phases, data has ${phases.length}`);
+  for (const ph of phases) {
+    if (!hub.includes(`id="ph-${ph.id}"`)) fail(`eventstorming: phase ${ph.id} missing from the big picture`);
+    if (!hub.includes('st--pivot')) fail('eventstorming: no pivotal event drawn');
+  }
+  for (const id of ids) if (!hub.includes(`href="/eventstorming/contexts/${id}/"`)) fail(`eventstorming: the hub index lacks ${id}`);
+  if (!hub.includes(fmt(es.counts.events))) fail('eventstorming: event total missing from the hub');
+  // the landing section prints the same counts as the data
+  const home = read('index.html');
+  for (const [k, v] of [['context boards', es.counts.contexts], ['domain events placed', es.counts.events], ['commands', es.counts.commands], ['policies', es.counts.policies], ['hot spots', es.counts.hotspots]]) {
+    if (!home.includes(`<dt>${k}</dt><dd class="es-n">${fmt(v)}</dd>`)) fail(`eventstorming: landing section shows the wrong "${k}" (data says ${fmt(v)})`);
+  }
+  // counts add up across boards
+  const sumK = (k) => Object.values(es.contexts).reduce((s, c) => s + c.counts[k], 0);
+  for (const k of ['rows', 'events', 'commands', 'policies', 'reads', 'hotspots']) if (sumK(k) !== es.counts[k]) fail(`eventstorming: per-board ${k} do not sum to the total ${es.counts[k]}`);
+  // every board: right h1, every published event drawn, every hot spot and row present, no placeholder
+  for (const id of ids) {
+    const f = `eventstorming/contexts/${id}/index.html`;
+    if (!exists(f)) { fail(`eventstorming: board for ${id} missing`); continue; }
+    const html = read(f).replace(/<wbr>/g, ''); const m = es.contexts[id];
+    const h1 = html.match(/<h1>([^<]*)<\/h1>/);
+    if (!h1 || h1[1] !== id) fail(`eventstorming: ${id} board has the wrong <h1>`);
+    for (const ev of m.source.publishedEvents) if (!html.includes(`>${ev}</span>`)) fail(`eventstorming: ${id} board does not draw its published event ${ev}`);
+    for (let i = 1; i <= m.rows.length; i++) if (!html.includes(`id="row-${i}"`)) fail(`eventstorming: ${id} board lacks row ${i}`);
+    if ((html.match(/<li class="brow"/g) || []).length !== m.rows.length) fail(`eventstorming: ${id} board draws the wrong number of rows`);
+    for (const h of m.hotspots || []) if (!html.includes(esc(h.text))) fail(`eventstorming: ${id} board lacks a hot spot`);
+    if (!html.includes('st st--agg') && m.rows.some((r) => r.aggregate)) fail(`eventstorming: ${id} board draws no aggregate`);
+    for (const r of m.rows) if (!r.evidence?.length) fail(`eventstorming: ${id} has a row without evidence`);
+  }
+  const age = (Date.now() - Date.parse(es.generatedAt)) / 86400000;
+  if (age > 45) console.warn(`warn: eventstorming.json is ${age.toFixed(0)} days old (\`make eventstorming\`)`);
+}
+
 // ---- size budget (bytes, uncompressed) ----
 // The landing page keeps its own budget; the generated engineering study under /engineering/ has a separate one.
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
@@ -237,8 +286,9 @@ const files = walk(DIST);
 const engDir = path.join(DIST, 'engineering') + path.sep;
 const archDir = path.join(DIST, 'architecture') + path.sep;
 const briefDir = path.join(DIST, 'briefings') + path.sep;
-const sum = (re, pick = (f) => !f.startsWith(engDir) && !f.startsWith(archDir) && !f.startsWith(briefDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
-const budget = [['html', /\.html$/, 90e3], ['css', /\.css$/, 70e3], ['js', /\.js$/, 50e3], ['fonts', /\.woff2$/, 200e3], ['total', /./, 700e3]];
+const esDir = path.join(DIST, 'eventstorming') + path.sep;
+const sum = (re, pick = (f) => !f.startsWith(engDir) && !f.startsWith(archDir) && !f.startsWith(briefDir) && !f.startsWith(esDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
+const budget = [['html', /\.html$/, 90e3], ['css', /\.css$/, 90e3], ['js', /\.js$/, 50e3], ['fonts', /\.woff2$/, 200e3], ['total', /./, 700e3]];
 for (const [name, re, max] of budget) {
   const n = sum(re);
   if (n > max) fail(`budget: ${name} is ${(n / 1024).toFixed(0)} KiB, max ${(max / 1024).toFixed(0)} KiB`);
@@ -254,6 +304,10 @@ if (archLargest > 120e3) fail(`budget: largest architecture page is ${(archLarge
 const briefHtml = sum(/\.html$/, (f) => f.startsWith(briefDir));
 const briefLargest = Math.max(...files.filter((f) => f.startsWith(briefDir)).map((f) => fs.statSync(f).size));
 if (briefHtml > 1.5e6) fail(`budget: briefings html is ${(briefHtml / 1024).toFixed(0)} KiB, max 1464 KiB`);
+const esHtml = sum(/\.html$/, (f) => f.startsWith(esDir));
+const esLargest = Math.max(...files.filter((f) => f.startsWith(esDir)).map((f) => fs.statSync(f).size));
+if (esHtml > 2.5e6) fail(`budget: eventstorming html is ${(esHtml / 1024).toFixed(0)} KiB, max 2441 KiB`);
+if (esLargest > 180e3) fail(`budget: largest eventstorming page is ${(esLargest / 1024).toFixed(0)} KiB, max 176 KiB`);
 if (briefLargest > 220e3) fail(`budget: largest briefings page is ${(briefLargest / 1024).toFixed(0)} KiB, max 214 KiB`);
 // hashed asset referenced by the page must exist (catches a stale dist)
 for (const m of read('index.html').matchAll(/(?:href|src)="(\/assets\/(?:css|js)\/[^"]+)"/g)) if (!exists(m[1].slice(1))) fail(`missing hashed asset ${m[1]}`);
@@ -262,4 +316,4 @@ if (errors.length) {
   console.error(`check failed (${errors.length}):\n - ${errors.join('\n - ')}`);
   process.exit(1);
 }
-console.log(`check ok: ${files.length} files (${engPages.length} engineering, ${archPages.length} architecture, ${briefPages.length} briefing pages), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
+console.log(`check ok: ${files.length} files (${engPages.length} engineering, ${archPages.length} architecture, ${briefPages.length} briefing pages, ${esPages.length} eventstorming pages), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);

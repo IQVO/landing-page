@@ -1,0 +1,421 @@
+{
+  "context": "outbound-shipping",
+  "oneLine": "Turns manifested packages into loads for a carrier cutoff, tracks them onto the truck, and confirms the shipment when the truck leaves.",
+  "pivotal": [
+    "LoadPlanned",
+    "LoadClosed",
+    "ShipmentConfirmed",
+    "BillOfLadingIssued"
+  ],
+  "rows": [
+    {
+      "title": "Keep the cutoff times",
+      "story": "process-path-management announces each site's daily cutoffs. Shipping keeps the latest schedule as a local copy, so it can tell which cutoff a package belongs to.",
+      "trigger": {
+        "kind": "external",
+        "system": "process-path-management",
+        "event": "CPTScheduleChanged"
+      },
+      "policy": "Whenever a site's cutoff schedule changes, replace the local copy for that site",
+      "updates": [
+        "Cutoff schedule"
+      ],
+      "command": {
+        "name": "ApplyCptSchedule",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_cpt_schedule.go",
+        "internal/adapters/inbound/kafka/cpt_layout_consumers.go"
+      ]
+    },
+    {
+      "title": "Plan a load for a manifested package",
+      "story": "A packed parcel is manifested. Shipping works out which cutoff it must make, joins the open load for that cutoff or plans a new one, and expects the package on it.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "PackageManifested"
+      },
+      "policy": "Whenever a package is manifested, join the open load for its cutoff or plan one",
+      "reads": [
+        "Cutoff schedule"
+      ],
+      "command": {
+        "name": "ExpectPackage",
+        "via": "policy"
+      },
+      "aggregate": "OutboundLoad",
+      "events": [
+        "LoadPlanned"
+      ],
+      "evidence": [
+        "internal/application/usecases/expect_package.go",
+        "internal/domain/outboundload/commands.go",
+        "internal/adapters/inbound/kafka/fulfillment_consumer.go"
+      ]
+    },
+    {
+      "title": "Drop a diverted package",
+      "story": "If fulfillment diverts a package, it is short-shipped at once with the reason DIVERTED, so it cannot hold up the closing of its load.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "PackageDiverted"
+      },
+      "policy": "Whenever a package is diverted, short-ship it so its load can still close",
+      "command": {
+        "name": "DivertPackage",
+        "via": "policy"
+      },
+      "aggregate": "ShippingPackage",
+      "evidence": [
+        "internal/application/usecases/divert_package.go",
+        "internal/domain/shippingpackage/commands.go"
+      ]
+    },
+    {
+      "title": "Give the load a door",
+      "story": "dock-scheduling books an outbound appointment for a cutoff. The appointment is always kept, and its door goes to the open load of that cutoff.",
+      "trigger": {
+        "kind": "external",
+        "system": "dock-scheduling",
+        "event": "DockAppointmentBooked"
+      },
+      "policy": "Whenever an outbound appointment names a cutoff, give its door to the open load",
+      "updates": [
+        "Appointments copy"
+      ],
+      "command": {
+        "name": "BookAppointment",
+        "via": "policy"
+      },
+      "aggregate": "OutboundLoad",
+      "events": [
+        "LoadDoorAssigned"
+      ],
+      "evidence": [
+        "internal/application/usecases/book_appointment.go",
+        "internal/domain/outboundload/commands.go",
+        "internal/adapters/inbound/kafka/dock_yard_consumers.go"
+      ]
+    },
+    {
+      "title": "Start loading when the trailer docks",
+      "story": "The yard reports a trailer at a door. If a planned load uses that door, the trailer is attached to it and loading starts.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "TrailerDocked"
+      },
+      "policy": "Whenever a trailer docks at a load's door, attach it and start loading",
+      "command": {
+        "name": "DockTrailer",
+        "via": "policy"
+      },
+      "aggregate": "OutboundLoad",
+      "events": [
+        "LoadingStarted"
+      ],
+      "evidence": [
+        "internal/application/usecases/dock_trailer.go",
+        "internal/domain/outboundload/commands.go"
+      ]
+    },
+    {
+      "title": "Stage a package",
+      "story": "A dock operator scans a package into a staging spot, ready for its truck. Only a staging location of the package's own site is accepted.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock operator"
+      },
+      "reads": [
+        "Staging locations"
+      ],
+      "command": {
+        "name": "StagePackage",
+        "operationId": "stagePackage"
+      },
+      "aggregate": "ShippingPackage",
+      "events": [
+        "PackageStaged"
+      ],
+      "evidence": [
+        "internal/application/usecases/scan_package.go",
+        "internal/domain/shippingpackage/commands.go",
+        "internal/application/usecases/apply_layout.go"
+      ]
+    },
+    {
+      "title": "Load a package onto the truck",
+      "story": "A dock operator scans the package at the door. It is accepted only for the load it belongs to, and only through that load's assigned door.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock operator"
+      },
+      "reads": [
+        "The load and its door"
+      ],
+      "command": {
+        "name": "LoadPackage",
+        "operationId": "loadPackage"
+      },
+      "aggregate": "ShippingPackage",
+      "events": [
+        "PackageLoaded"
+      ],
+      "evidence": [
+        "internal/application/usecases/scan_package.go",
+        "internal/domain/shippingpackage/commands.go"
+      ]
+    },
+    {
+      "title": "Take a package back off the truck",
+      "story": "An operator removes a loaded package from its load. It goes back to staged, with an optional reason. A package that already shipped can no longer be unloaded.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock operator"
+      },
+      "command": {
+        "name": "UnloadPackage",
+        "operationId": "unloadPackage"
+      },
+      "aggregate": "ShippingPackage",
+      "events": [
+        "PackageUnloaded"
+      ],
+      "evidence": [
+        "internal/application/usecases/scan_package.go",
+        "internal/domain/shippingpackage/commands.go"
+      ]
+    },
+    {
+      "title": "Close the load",
+      "story": "The supervisor closes the load once every package is loaded or short-shipped with a reason. Closing can list the packages to short-ship.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock supervisor"
+      },
+      "command": {
+        "name": "CloseLoad",
+        "operationId": "closeLoad"
+      },
+      "aggregate": "OutboundLoad",
+      "events": [
+        "LoadClosed"
+      ],
+      "evidence": [
+        "internal/application/usecases/load_commands.go",
+        "internal/domain/outboundload/commands.go"
+      ]
+    },
+    {
+      "title": "Reopen a closed load",
+      "story": "The supervisor puts a closed load back to loading so work can continue. A load whose shipment is already confirmed never reopens.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock supervisor"
+      },
+      "command": {
+        "name": "ReopenLoad",
+        "operationId": "reopenLoad"
+      },
+      "aggregate": "OutboundLoad",
+      "events": [
+        "LoadReopened"
+      ],
+      "evidence": [
+        "internal/application/usecases/load_commands.go",
+        "internal/domain/outboundload/commands.go"
+      ]
+    },
+    {
+      "title": "Cancel a planned load",
+      "story": "The supervisor cancels a load that never got going. It is refused once packages are assigned to it; those must be short-shipped and the load closed instead.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock supervisor"
+      },
+      "command": {
+        "name": "CancelLoad",
+        "operationId": "cancelLoad"
+      },
+      "aggregate": "OutboundLoad",
+      "events": [
+        "LoadCancelled"
+      ],
+      "evidence": [
+        "internal/application/usecases/load_commands.go",
+        "internal/domain/outboundload/commands.go"
+      ]
+    },
+    {
+      "title": "Confirm the shipment when the truck leaves",
+      "story": "Only the yard's departure fact makes a shipment real. A departure with a seal, for a closed load, ships its loaded packages and tells order-management which orders left.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "TrailerDeparted"
+      },
+      "policy": "Whenever a trailer leaves with a closed load and a seal, confirm the shipment",
+      "reads": [
+        "Appointments copy"
+      ],
+      "command": {
+        "name": "ConfirmShipment",
+        "via": "policy"
+      },
+      "aggregate": "OutboundLoad",
+      "events": [
+        "ShipmentConfirmed"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "marks the lines of the shipped orders as shipped"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/on_departure.go",
+        "internal/domain/outboundload/commands.go",
+        "internal/adapters/inbound/kafka/dock_yard_consumers.go"
+      ]
+    },
+    {
+      "title": "Issue the bill of lading",
+      "story": "The moment the shipment is confirmed, one bill of lading is issued for the load, with the carrier, the yard's seal, the package count and the total weight.",
+      "trigger": {
+        "kind": "event",
+        "event": "ShipmentConfirmed"
+      },
+      "policy": "Whenever a shipment is confirmed, issue its bill of lading in the same step",
+      "command": {
+        "name": "IssueBillOfLading",
+        "via": "policy"
+      },
+      "aggregate": "BillOfLading",
+      "events": [
+        "BillOfLadingIssued"
+      ],
+      "evidence": [
+        "internal/application/usecases/on_departure.go",
+        "internal/domain/billoflading/bol.go"
+      ]
+    },
+    {
+      "title": "Flag packages left behind at departure",
+      "story": "If the truck leaves before the load was closed, nothing is confirmed. Every package that was not loaded is flagged as having missed its load, once, and a supervisor decides.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "TrailerDeparted"
+      },
+      "policy": "Whenever a trailer leaves an unclosed load, flag each package not loaded",
+      "command": {
+        "name": "FlagMissedLoad",
+        "via": "policy"
+      },
+      "aggregate": "ShippingPackage",
+      "events": [
+        "PackageMissedLoad"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "re-promises the order: recomputes its delivery promise"
+        },
+        {
+          "system": "exception-management",
+          "does": "opens one case for the missed package"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/on_departure.go",
+        "internal/domain/shippingpackage/commands.go"
+      ]
+    },
+    {
+      "title": "Sweep for packages that missed the cutoff",
+      "story": "An outside scheduler calls the sweep after a cutoff. Every package still expected or staged on an open load past its cutoff is flagged, and a re-run flags nothing twice.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Cutoff sweep"
+      },
+      "policy": "Every sweep, flag each package not loaded on an open load past its cutoff",
+      "command": {
+        "name": "SweepMissedLoads",
+        "operationId": "runMissedLoadSweep"
+      },
+      "aggregate": "ShippingPackage",
+      "events": [
+        "PackageMissedLoad"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "re-promises the order: recomputes its delivery promise"
+        },
+        {
+          "system": "exception-management",
+          "does": "opens one case for the missed package"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sweep_missed.go",
+        "internal/domain/shippingpackage/commands.go"
+      ]
+    },
+    {
+      "title": "Void a bill of lading",
+      "story": "A supervisor voids an issued bill of lading and gives a reason. The shipment itself is not undone.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock supervisor"
+      },
+      "command": {
+        "name": "VoidBillOfLading",
+        "operationId": "voidBillOfLading"
+      },
+      "aggregate": "BillOfLading",
+      "events": [
+        "BillOfLadingVoided"
+      ],
+      "evidence": [
+        "internal/application/usecases/load_commands.go",
+        "internal/domain/billoflading/bol.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A truck that leaves before its load is closed never confirms the shipment, even if the load closes right after. Only a new departure would.",
+      "evidence": "docs/adr/0002-ship-confirm-follows-the-physical-departure.md"
+    },
+    {
+      "text": "No bill of lading exists before departure, so a carrier that needs it in hand before leaving cannot be served yet.",
+      "evidence": "docs/adr/0002-ship-confirm-follows-the-physical-departure.md"
+    },
+    {
+      "text": "An appointment that arrives before its load exists only saves a copy. The door is not assigned when the load is planned later.",
+      "evidence": "docs/docs/operations/troubleshooting.md"
+    },
+    {
+      "text": "Nothing in this repository schedules the missed-load sweep. An outside scheduler has to call it.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "An order split over two loads yields two shipment events. Whether the retail network accepts a partial confirmation is still unchecked.",
+      "evidence": "docs/adr/0004-shipment-confirmed-replaces-the-manual-network-confirmation.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "The yard could react to loading started, load closed and load reopened. That consumer is deferred until the yard contract merges.",
+      "evidence": "docs/adr/0001-outbound-shipping-bounded-context.md"
+    },
+    {
+      "text": "Pallets, load sequencing and a master bill of lading are deliberately deferred; version one ships packages only.",
+      "evidence": "docs/adr/0001-outbound-shipping-bounded-context.md"
+    }
+  ]
+}

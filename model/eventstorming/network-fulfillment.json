@@ -1,0 +1,460 @@
+{
+  "context": "network-fulfillment",
+  "oneLine": "The seam to the external retail network: answers its purchase orders in time, tells it what the building can ship, and reports what the dock received.",
+  "pivotal": [
+    "NetworkOrderReceived",
+    "NetworkOrderSubmitted",
+    "NetworkOrderAcknowledged",
+    "NetworkOrderShipmentConfirmed"
+  ],
+  "rows": [
+    {
+      "title": "Take a purchase order and hold the stock",
+      "story": "A new purchase order is recorded and its products are translated to our SKUs. order-management holds the stock and promises a ship date. If the date is feasible, the whole order is accepted.",
+      "trigger": {
+        "kind": "external",
+        "outside": true,
+        "system": "Retail network",
+        "event": "Purchase order issued"
+      },
+      "policy": "Whenever a poll finds a new purchase order, record it and start its answer clock",
+      "reads": [
+        "Product dictionary",
+        "Ship-by promise from order-management"
+      ],
+      "command": {
+        "name": "ReceiveNetworkDemand",
+        "via": "job"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "NetworkOrderReceived",
+        "NetworkOrderSubmitted"
+      ],
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "is told the whole order is accepted; it is settled later",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receive_network_demand.go",
+        "internal/adapters/inbound/poller/poller.go",
+        "internal/adapters/outbound/ordermanagement/planner.go",
+        "internal/domain/networkorder/network_order.go"
+      ]
+    },
+    {
+      "title": "Refuse an order we cannot take",
+      "story": "One unknown product, or a ship-by date the building cannot meet, refuses the whole order. Any stock already held is freed and the network is told no, with the reason.",
+      "trigger": {
+        "kind": "external",
+        "outside": true,
+        "system": "Retail network",
+        "event": "Purchase order issued"
+      },
+      "policy": "Whenever a purchase order has an unknown product or an infeasible date, refuse all of it",
+      "reads": [
+        "Product dictionary",
+        "Ship-by promise from order-management"
+      ],
+      "command": {
+        "name": "ReceiveNetworkDemand",
+        "via": "job"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "NetworkOrderReceived",
+        "NetworkOrderRejected"
+      ],
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "is told no, with the reason (unknown listing or cannot meet ship-by)",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receive_network_demand.go",
+        "internal/adapters/outbound/producttranslation/dictionary.go",
+        "internal/domain/networkorder/network_order.go"
+      ]
+    },
+    {
+      "title": "Settle an accepted order",
+      "story": "The network confirms or refuses an answer later. On success the order is acknowledged and the held stock is released. On failure the hold is freed and the order is refused.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Settle pass"
+      },
+      "policy": "Every pass, ask the network about each accepted order: success settles it, failure refuses it, pending waits",
+      "reads": [
+        "Orders awaiting settlement",
+        "Network's status for each answer"
+      ],
+      "command": {
+        "name": "ReconcileSubmittedOrders",
+        "via": "timer"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "NetworkOrderAcknowledged",
+        "NetworkOrderRejected"
+      ],
+      "evidence": [
+        "internal/application/usecases/reconcile_submitted_orders.go",
+        "internal/domain/networkorder/network_order.go",
+        "docs/adr/0016-cloudevents-submitted-and-settle-time-acknowledged.md"
+      ]
+    },
+    {
+      "title": "Confirm that an order shipped",
+      "story": "Once acknowledged, an order can be confirmed as shipped. It is normally triggered when outbound-shipping reports the load as shipped; an operator can also do it by hand. The network gets a label request first.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Acknowledged orders"
+      ],
+      "command": {
+        "name": "ConfirmNetworkOrderShipment",
+        "operationId": "confirmNetworkOrderShipment"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "NetworkOrderShipmentConfirmed"
+      ],
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "is sent the label request and then the shipment confirmation",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/confirm_network_order_shipment.go",
+        "internal/adapters/inbound/kafka/shipment_confirmed_consumer.go",
+        "docs/adr/0014-explicit-shipment-confirmation-endpoint.md"
+      ]
+    },
+    {
+      "title": "Report an order past its answer deadline",
+      "story": "A sweep finds orders still unanswered after their deadline and reports each one on every pass. It never changes the order itself.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Deadline sweep"
+      },
+      "policy": "Every sweep, report each unanswered order that is past its deadline, and leave the order unchanged",
+      "reads": [
+        "Unanswered orders"
+      ],
+      "command": {
+        "name": "SweepAcknowledgementDeadlines",
+        "via": "timer"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "AcknowledgementDeadlineAtRisk"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens an exception for the order, or adds to the one already open",
+          "outside": false
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sweep_acknowledgement_deadlines.go",
+        "internal/domain/networkorder/network_order.go"
+      ]
+    },
+    {
+      "title": "Refuse an order nobody answered in time",
+      "story": "A separate sweep refuses orders whose deadline passed unanswered, and frees the held stock if there is a hold. An overdue order is never answered late.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Overdue sweep"
+      },
+      "policy": "Every sweep, refuse each unanswered order that is past its deadline and free its held stock",
+      "reads": [
+        "Unanswered orders"
+      ],
+      "command": {
+        "name": "RejectOverdueOrders",
+        "via": "timer"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "NetworkOrderRejected"
+      ],
+      "evidence": [
+        "internal/application/usecases/reject_overdue_orders.go",
+        "internal/domain/networkorder/network_order.go"
+      ]
+    },
+    {
+      "title": "Free a hold nobody decided",
+      "story": "order-management never times out a held order, so this context does. An open hold well past the deadline is cancelled and reported. The order's own state is left alone.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Orphaned-hold sweep"
+      },
+      "policy": "Every sweep, cancel any open hold that is past its deadline plus a grace period",
+      "reads": [
+        "Open holds"
+      ],
+      "command": {
+        "name": "SweepOrphanedHolds",
+        "via": "timer"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "OrphanedHoldCancelled"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens an exception for the order, or adds to the one already open",
+          "outside": false
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sweep_orphaned_holds.go",
+        "internal/domain/networkorder/hold.go",
+        "docs/adr/0024-orphaned-order-management-hold-sweep.md"
+      ]
+    },
+    {
+      "title": "Keep the cutoff schedule copy",
+      "story": "process-path-management announces process paths and their cutoff schedules. A local copy of the cutoffs and path cycle times lets offers and the site profile be worked out without a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "process-path-management",
+        "event": "CPTScheduleChanged"
+      },
+      "policy": "Whenever a path or its cutoff schedule changes, update the local copy",
+      "updates": [
+        "Cutoff schedule and path times"
+      ],
+      "command": {
+        "name": "ApplySchedule",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/outbound/processpathcache/consumer.go",
+        "internal/adapters/outbound/processpathcache/schedule.go"
+      ]
+    },
+    {
+      "title": "Keep the path capacity copy",
+      "story": "wes-work-planning announces how much capacity is left on each path before each cutoff. A local copy lets offers and cutoff ceilings be worked out without a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "wes-work-planning",
+        "event": "PathCapacityChanged"
+      },
+      "policy": "Whenever a path's remaining capacity changes, update the local copy",
+      "updates": [
+        "Remaining capacity per path"
+      ],
+      "command": {
+        "name": "ApplyPathCapacityChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/outbound/pathcapacitycache/consumer.go"
+      ]
+    },
+    {
+      "title": "Work out what we could offer",
+      "story": "For each known SKU the offer is the lower of the stock usable now and what the paths can still handle before the next feasible cutoff. Unknown capacity falls back to stock.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Recompute pass"
+      },
+      "policy": "Every pass, work out an offer per SKU from usable stock and the capacity before the next cutoff",
+      "reads": [
+        "Product dictionary",
+        "Cutoff schedule and path times",
+        "Remaining capacity per path"
+      ],
+      "updates": [
+        "Capability offers"
+      ],
+      "command": {
+        "name": "RecomputeCapabilityOffers",
+        "via": "timer"
+      },
+      "aggregate": "CapabilityOffer",
+      "evidence": [
+        "internal/application/usecases/recompute_capability_offers.go",
+        "internal/domain/capabilityoffer/capability_offer.go",
+        "docs/adr/0031-advertise-against-the-next-feasible-cutoff.md"
+      ]
+    },
+    {
+      "title": "Tell the network how the building works",
+      "story": "In live mode, each site's cutoffs, handling time and order ceilings are derived from the local copies and declared to the network. A new revision is sent only when the content changed.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Profile pass"
+      },
+      "policy": "Every pass, declare each site's operating profile to the network, but only if it changed",
+      "reads": [
+        "Cutoff schedule and path times",
+        "Remaining capacity per path"
+      ],
+      "command": {
+        "name": "DeclareNodeProfiles",
+        "via": "timer"
+      },
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "learns each site's cutoffs, handling time and order ceilings",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/declare_node_profiles.go",
+        "internal/application/usecases/profile_derivation.go",
+        "docs/adr/0027-supply-loop-node-profile-and-inventory-feed.md"
+      ]
+    },
+    {
+      "title": "Tell the network what we can ship",
+      "story": "In live mode, the saved offers become an inventory feed per site. The feed is sent when it changed, and repeated at most hourly when it did not.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Inventory feed pass"
+      },
+      "policy": "Every pass, send each site's offers for the items the site lists, when they changed",
+      "reads": [
+        "Capability offers",
+        "Product dictionary"
+      ],
+      "command": {
+        "name": "FeedInventory",
+        "via": "timer"
+      },
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "learns how many of each listed item the site can ship",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/feed_inventory.go",
+        "internal/application/usecases/feed_plan.go",
+        "docs/adr/0027-supply-loop-node-profile-and-inventory-feed.md"
+      ]
+    },
+    {
+      "title": "Announce a seller shipment to receiving",
+      "story": "In live mode, shipments the network says are on their way are recorded. Each one is registered in inbound-receiving as an expected delivery before the truck arrives. Failures are retried with a growing wait.",
+      "trigger": {
+        "kind": "external",
+        "outside": true,
+        "system": "Retail network",
+        "event": "Seller shipment announced"
+      },
+      "policy": "Whenever a poll finds a shipped seller shipment, record it and register an expected delivery",
+      "reads": [
+        "Product codes (GTIN to SKU)"
+      ],
+      "command": {
+        "name": "IntakeInboundShipments",
+        "via": "job"
+      },
+      "evidence": [
+        "internal/application/usecases/intake_inbound_shipments.go",
+        "internal/adapters/outbound/inboundreceiving/client.go",
+        "docs/adr/0028-inbound-loop-seller-shipments-and-receipts.md"
+      ]
+    },
+    {
+      "title": "Keep a copy of the receipts at the dock",
+      "story": "inbound-receiving announces each accepted carton, each carton finding and each closed receipt. A local copy keeps only the deliveries this context announced, so the result can be reported later.",
+      "trigger": {
+        "kind": "external",
+        "system": "inbound-receiving",
+        "event": "ReceiptClosed"
+      },
+      "policy": "Whenever a receipt closes, keep it with its cartons and findings, but only for our own deliveries",
+      "updates": [
+        "Receipt facts for our deliveries"
+      ],
+      "command": {
+        "name": "RecordClosed",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/receipt_consumer.go",
+        "internal/adapters/outbound/postgres/receipt_projection_repo.go",
+        "docs/adr/0028-inbound-loop-seller-shipments-and-receipts.md"
+      ]
+    },
+    {
+      "title": "Report what the dock received",
+      "story": "Each closed receipt is turned into a per-carton result: received, damaged, missing or unexpected, with any findings. It is sent to the network exactly once per shipment.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Receipt return pass"
+      },
+      "policy": "Every pass, report each closed receipt not yet reported, retrying with a growing wait",
+      "reads": [
+        "Receipt facts for our deliveries"
+      ],
+      "command": {
+        "name": "ReturnInboundReceipts",
+        "via": "timer"
+      },
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "is told what arrived, carton by carton, with the findings",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/return_inbound_receipts.go",
+        "docs/adr/0028-inbound-loop-seller-shipments-and-receipts.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "The deadline warning fires only after the answer deadline has passed. The decision record says it should fire as the deadline approaches.",
+      "evidence": "docs/adr/0001-network-fulfillment-bounded-context.md"
+    },
+    {
+      "text": "If releasing the held stock fails after an order settles, nothing retries it: the order no longer counts as awaiting settlement.",
+      "evidence": "docs/docs/ddd/use-cases.md"
+    },
+    {
+      "text": "The network is always told one package per order, because the shipped-load fact carries no per-order package count yet.",
+      "evidence": "docs/adr/0014-explicit-shipment-confirmation-endpoint.md"
+    },
+    {
+      "text": "Remaining capacity is counted as one order per unit, so a declared cutoff ceiling can be too high until the network corrects it.",
+      "evidence": "docs/adr/0027-supply-loop-node-profile-and-inventory-feed.md"
+    },
+    {
+      "text": "Dock findings with no carton label (unknown product, unlabelled carton) cannot be reported to the network. They are only logged.",
+      "evidence": "docs/adr/0028-inbound-loop-seller-shipments-and-receipts.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "outbound-shipping could add a per-order package count to its shipped-load fact. The consumer already tolerates it, so the real count would flow.",
+      "evidence": "docs/adr/0014-explicit-shipment-confirmation-endpoint.md"
+    },
+    {
+      "text": "Pack levels from the network's listings could be declared to product-master once the open question of which side owns a product code is settled.",
+      "evidence": "docs/adr/0028-inbound-loop-seller-shipments-and-receipts.md"
+    }
+  ]
+}

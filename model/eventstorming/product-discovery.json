@@ -1,0 +1,313 @@
+{
+  "context": "product-discovery",
+  "oneLine": "The shopper-facing read side: keeps searchable product pages and a category tree up to date from other contexts' events, and works out what is purchasable.",
+  "pivotal": [
+    "CatalogItemCreated",
+    "ProductContentPublished",
+    "ItemPriceChanged",
+    "ListingAvailabilityChanged",
+    "CatalogItemDiscontinued"
+  ],
+  "rows": [
+    {
+      "title": "Add a new item to the catalogue view",
+      "story": "offer-availability announces a new catalogue item. The product row gets its title and flags and becomes visible. If a price or listing arrived first, a hidden placeholder row is completed.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemCreated"
+      },
+      "policy": "Whenever a catalogue item is created, complete its product row and mark it active",
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyCatalogItemCreated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_offer.go",
+        "internal/adapters/inbound/kafka/offer_availability.go",
+        "internal/domain/productview/fold_item.go"
+      ]
+    },
+    {
+      "title": "Show the published content",
+      "story": "product-content publishes the description, bullets, attributes, media and main category of a product. Only a newer revision replaces what is shown, and the product becomes searchable.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-content",
+        "event": "ProductContentPublished"
+      },
+      "policy": "Whenever content is published, replace the product's content if its revision is newer",
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyProductContentPublished",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_catalogue.go",
+        "internal/adapters/inbound/kafka/product_content.go",
+        "internal/domain/productview/fold_content.go"
+      ]
+    },
+    {
+      "title": "Keep the category tree",
+      "story": "product-content publishes the whole category tree. A newer version replaces the old one and the purchasable counts per category are worked out again. No product row has to change.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-content",
+        "event": "CategoryTreePublished"
+      },
+      "policy": "Whenever a category tree is published, replace the current one if its version is newer",
+      "updates": [
+        "Category tree view"
+      ],
+      "command": {
+        "name": "ApplyCategoryTreePublished",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_catalogue.go",
+        "internal/domain/categoryview/categoryview.go",
+        "internal/adapters/inbound/kafka/product_content.go"
+      ]
+    },
+    {
+      "title": "Show the current price",
+      "story": "pricing announces a new list and sale price. A newer version replaces the prices on the product and makes the price count towards being purchasable.",
+      "trigger": {
+        "kind": "external",
+        "system": "pricing",
+        "event": "ItemPriceChanged"
+      },
+      "policy": "Whenever a price changes, store the new prices if the version is newer",
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyItemPriceChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_catalogue.go",
+        "internal/adapters/inbound/kafka/pricing.go",
+        "internal/domain/productview/fold_price.go"
+      ]
+    },
+    {
+      "title": "Add a listing to a product",
+      "story": "offer-availability says a node now offers the item. The product gets a live listing with no stock yet, and the view learns which item the listing belongs to.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingCreated"
+      },
+      "policy": "Whenever a listing is created, add it to its product and remember which item it belongs to",
+      "updates": [
+        "Product view",
+        "Listing-to-item map"
+      ],
+      "command": {
+        "name": "ApplyListingCreated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_offer.go",
+        "internal/adapters/inbound/kafka/offer_availability.go",
+        "internal/domain/productview/fold_listing.go"
+      ]
+    },
+    {
+      "title": "Update the stock of a product",
+      "story": "offer-availability reports how many units a listing can ship. A newer report replaces the old count, and the product shows in stock if any live listing has units.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingAvailabilityChanged"
+      },
+      "policy": "Whenever a quantity is reported, store it if it is newer and recheck in stock and purchasable",
+      "updates": [
+        "Product view",
+        "Listing-to-item map"
+      ],
+      "command": {
+        "name": "ApplyListingAvailabilityChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_offer.go",
+        "internal/adapters/inbound/kafka/offer_availability.go",
+        "internal/domain/productview/fold_listing.go",
+        "internal/domain/productview/view.go"
+      ]
+    },
+    {
+      "title": "Hide a suppressed listing",
+      "story": "A suppressed listing stops counting as stock. The event names only the listing, so the item is found in the listing-to-item map. An unknown listing is skipped with a warning.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingSuppressed"
+      },
+      "policy": "Whenever a listing is suppressed, mark it suppressed so it no longer counts as stock",
+      "reads": [
+        "Listing-to-item map"
+      ],
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyListingStateChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_offer.go",
+        "internal/adapters/inbound/kafka/offer_availability.go",
+        "internal/domain/productview/fold_listing.go"
+      ]
+    },
+    {
+      "title": "Bring a restored listing back",
+      "story": "A restored listing counts as stock again, found through the listing-to-item map like a suppression. An unknown listing is skipped with a warning.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingRestored"
+      },
+      "policy": "Whenever a listing is restored, mark it live so its units count as stock again",
+      "reads": [
+        "Listing-to-item map"
+      ],
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyListingStateChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_offer.go",
+        "internal/adapters/inbound/kafka/offer_availability.go",
+        "internal/domain/productview/fold_listing.go"
+      ]
+    },
+    {
+      "title": "Retire a product's content",
+      "story": "product-content ends a product's published content. The row stays, but it is no longer searchable or purchasable. A later, higher revision can publish it again.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-content",
+        "event": "ProductContentRetired"
+      },
+      "policy": "Whenever content is retired, mark it retired unless an older revision is being retired",
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyProductContentRetired",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_catalogue.go",
+        "internal/adapters/inbound/kafka/product_content.go",
+        "internal/domain/productview/fold_content.go"
+      ]
+    },
+    {
+      "title": "Withdraw a price from a product",
+      "story": "pricing withdraws an item's price. The amounts are cleared and the product is no longer purchasable, even if it is in stock.",
+      "trigger": {
+        "kind": "external",
+        "system": "pricing",
+        "event": "ItemPriceWithdrawn"
+      },
+      "policy": "Whenever a price is withdrawn, clear the amounts unless a newer price was already stored",
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyItemPriceWithdrawn",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_catalogue.go",
+        "internal/adapters/inbound/kafka/pricing.go",
+        "internal/domain/productview/fold_price.go"
+      ]
+    },
+    {
+      "title": "Mark a discontinued item",
+      "story": "The item is marked discontinued and is never purchasable again. Its page stays and reads as currently unavailable. A late creation event cannot bring it back.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemDiscontinued"
+      },
+      "policy": "Whenever an item is discontinued, mark its row discontinued",
+      "updates": [
+        "Product view"
+      ],
+      "command": {
+        "name": "ApplyCatalogItemDiscontinued",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_offer.go",
+        "internal/adapters/inbound/kafka/offer_availability.go",
+        "internal/domain/productview/fold_item.go"
+      ]
+    },
+    {
+      "title": "Rebuild the views from scratch",
+      "story": "An operator runs a one-off job that reads every source page by page and refills the product and category views with the same rules as live events. Events that follow are not applied twice.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "updates": [
+        "Product view",
+        "Category tree view"
+      ],
+      "command": {
+        "name": "RebuildProjections",
+        "via": "job"
+      },
+      "evidence": [
+        "internal/application/usecases/rebuild.go",
+        "cmd/rebuild/main.go",
+        "docs/adr/0006-rebuild-as-default-off-helm-job.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A silent producer or a stalled consumer leaves the views stale. There is no freshness metric and no alert on lag.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "The list of handled events and the messages parked after failing grow without bound. No pruning job exists.",
+      "evidence": "docs/docs/operations/runbook.md"
+    },
+    {
+      "text": "A suppress or restore that arrives before its listing is known is skipped with a warning. Only a rebuild repairs it.",
+      "evidence": "docs/adr/0002-product-discovery-assumptions.md"
+    },
+    {
+      "text": "A producer that resets its version or revision counter has its new facts ignored as stale.",
+      "evidence": "docs/docs/operations/troubleshooting.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Search runs on the database today; a dedicated search engine can sit behind the same port later.",
+      "evidence": "docs/docs/ddd/ubiquitous-language.md"
+    },
+    {
+      "text": "Recommendations, reviews, personalisation and sponsored placement are later phases; ranking weights are fixed today.",
+      "evidence": "docs/docs/overview/introduction.md"
+    }
+  ]
+}

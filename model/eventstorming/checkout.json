@@ -1,0 +1,290 @@
+{
+  "context": "checkout",
+  "oneLine": "Turns a ready cart into a placed order: a binding price, an authorized payment and an order handed on, with recovery when a step gives no clear answer.",
+  "pivotal": [
+    "CheckoutOpened",
+    "CheckoutDeclined",
+    "CheckoutCompleted",
+    "CheckoutRequoteRequired",
+    "CheckoutFailed"
+  ],
+  "rows": [
+    {
+      "title": "Open a checkout session",
+      "story": "The shopper starts checkout from a ready cart. Checkout checks that every chosen delivery offer is still valid, gets a binding price quote from pricing and opens a session that lasts as long as the quote.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "reads": [
+        "Cart ready for checkout",
+        "Delivery offers still valid",
+        "Binding price quote"
+      ],
+      "command": {
+        "name": "OpenSession",
+        "operationId": "openCheckoutSession"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutOpened"
+      ],
+      "evidence": [
+        "internal/application/usecases/open_session.go",
+        "internal/domain/checkoutsession/open.go"
+      ]
+    },
+    {
+      "title": "Confirm and place the order",
+      "story": "The shopper confirms with a payment method token. Checkout has the exact quote total authorized, then places the order. Once the order is accepted the session is complete.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "ConfirmSession",
+        "operationId": "confirmCheckoutSession"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutCompleted"
+      ],
+      "then": [
+        {
+          "system": "shopping-cart",
+          "does": "closes the shopper's cart as checked out"
+        },
+        {
+          "system": "customer-payments",
+          "does": "binds the order to the payment authorization and applies facts that waited for it"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/confirm_session.go",
+        "internal/application/usecases/settle.go",
+        "internal/domain/checkoutsession/terminals.go"
+      ]
+    },
+    {
+      "title": "Payment is declined",
+      "story": "The payment is refused, or the amount authorized is not the quote total, in which case the hold is released. The session is declined and the shopper may try another payment method until the quote runs out.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "ConfirmSession",
+        "operationId": "confirmCheckoutSession"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutDeclined"
+      ],
+      "evidence": [
+        "internal/application/usecases/confirm_session.go",
+        "internal/domain/checkoutsession/transitions.go"
+      ]
+    },
+    {
+      "title": "The order needs new delivery offers",
+      "story": "When the order is placed, an offer turns out to have changed and the order service sends new ones. The session ends as requote required with those offers and the payment hold is released.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "ConfirmSession",
+        "operationId": "confirmCheckoutSession"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutRequoteRequired"
+      ],
+      "evidence": [
+        "internal/application/usecases/settle.go",
+        "internal/domain/checkoutsession/terminals.go",
+        "internal/adapters/outbound/customerordering/gateway.go"
+      ]
+    },
+    {
+      "title": "The order is refused",
+      "story": "The order service rejects the order outright. The session fails with a code, an alert is raised and the payment hold is released.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "ConfirmSession",
+        "operationId": "confirmCheckoutSession"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/settle.go",
+        "internal/domain/checkoutsession/terminals.go"
+      ]
+    },
+    {
+      "title": "The order service does not answer",
+      "story": "The order service gives no clear answer. The session stays locked in placing and the shopper is told the order is still being processed. This is announced once, on the first unclear answer.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "ConfirmSession",
+        "operationId": "confirmCheckoutSession"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutPlacementInDoubt"
+      ],
+      "evidence": [
+        "internal/application/usecases/settle.go",
+        "internal/domain/checkoutsession/transitions.go"
+      ]
+    },
+    {
+      "title": "Settle an order that was in doubt",
+      "story": "A sweep replays the stored order request with the same key until the order service answers. It alerts at 20 hours, and at 22 hours gives up, fails the session and releases the payment hold.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Order sweep"
+      },
+      "policy": "Every sweep, replay each unsettled order request and record the answer",
+      "command": {
+        "name": "ResolveInDoubtPlacements",
+        "via": "timer"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutCompleted",
+        "CheckoutRequoteRequired",
+        "CheckoutFailed"
+      ],
+      "then": [
+        {
+          "system": "shopping-cart",
+          "does": "closes the shopper's cart as checked out"
+        },
+        {
+          "system": "customer-payments",
+          "does": "binds the order to the payment authorization and applies facts that waited for it"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/resolve_in_doubt.go",
+        "internal/domain/checkoutsession/terminals.go"
+      ]
+    },
+    {
+      "title": "Settle a payment that never answered",
+      "story": "A session left authorizing for over 2 minutes asks customer-payments again with the same key to learn the true outcome. The purchase then carries on as after a normal confirmation.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Payment sweep"
+      },
+      "policy": "Every sweep, any session authorizing for over 2 minutes asks again, with the same key",
+      "command": {
+        "name": "ResolveStuckAuthorizations",
+        "via": "timer"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutDeclined",
+        "CheckoutCompleted"
+      ],
+      "then": [
+        {
+          "system": "shopping-cart",
+          "does": "closes the shopper's cart as checked out"
+        },
+        {
+          "system": "customer-payments",
+          "does": "binds the order to the payment authorization and applies facts that waited for it"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/application/usecases/confirm_session.go"
+      ]
+    },
+    {
+      "title": "Release a payment hold that is still owed",
+      "story": "When an order is refused or needs a requote, releasing the payment hold is recorded as a debt on the session. A sweep retries every minute until it works.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Release sweep"
+      },
+      "policy": "Every minute, retry each payment-hold release that is still owed",
+      "command": {
+        "name": "RetryOwedVoids",
+        "via": "timer"
+      },
+      "aggregate": "CheckoutSession",
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/application/usecases/settle.go"
+      ]
+    },
+    {
+      "title": "Let a session expire with its quote",
+      "story": "A sweep expires every open or declined session whose price quote has run out. A session that is authorizing or placing is not touched.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Expiry sweep"
+      },
+      "policy": "Every sweep, an open or declined session past its quote expiry becomes expired",
+      "command": {
+        "name": "ExpireOnQuoteExpiry",
+        "via": "timer"
+      },
+      "aggregate": "CheckoutSession",
+      "events": [
+        "CheckoutSessionExpired"
+      ],
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/domain/checkoutsession/terminals.go"
+      ]
+    },
+    {
+      "title": "Forget old order requests",
+      "story": "The stored order request is dropped 24 hours after a session closes. The session itself stays, and nothing is announced.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Purge sweep"
+      },
+      "policy": "Every sweep, drop the stored order request of sessions closed over 24 hours ago",
+      "command": {
+        "name": "PurgeStoredPlacements",
+        "via": "timer"
+      },
+      "aggregate": "CheckoutSession",
+      "evidence": [
+        "internal/application/usecases/policies.go",
+        "internal/domain/checkoutsession/terminals.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "How the cart takes the requoted offers is open. Checkout only carries them; whether anything writes them into the cart is not verified here.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "If the order service never answers, the session stays locked for up to 22 hours before it fails and the payment hold is released.",
+      "evidence": "docs/adr/0002-checkout-assumptions.md"
+    },
+    {
+      "text": "Offers are checked only when the session opens. One that expires before confirmation surfaces later as a requote from the order service.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A failed release of a payment hold stays on the session as a debt, retried every minute. After an amount mismatch the shopper cannot confirm again until it clears.",
+      "evidence": "docs/adr/0002-checkout-assumptions.md"
+    }
+  ]
+}

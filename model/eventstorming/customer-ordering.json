@@ -1,0 +1,387 @@
+{
+  "context": "customer-ordering",
+  "oneLine": "Takes a shopper's order at checkout with a confirmed delivery promise for every shipment group, and follows each group until it is delivered, lost, returned or cancelled.",
+  "pivotal": [
+    "CustomerOrderPlaced",
+    "CustomerOrderCancelled"
+  ],
+  "rows": [
+    {
+      "title": "Register a shopper",
+      "story": "A shopper is registered with an e-mail, which can be used only once, and may start with saved delivery addresses. This is a test shopper, with no real account behind it.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "RegisterShopper",
+        "operationId": "registerShopper"
+      },
+      "aggregate": "Shopper",
+      "evidence": [
+        "internal/application/usecases/shopper.go",
+        "internal/domain/shopper/shopper.go"
+      ]
+    },
+    {
+      "title": "Save a delivery address",
+      "story": "A shopper saves an address to reuse at checkout, up to twenty. At checkout the address is copied into the order, so later edits never change a placed order.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "AddSavedAddress",
+        "operationId": "addSavedAddress"
+      },
+      "aggregate": "Shopper",
+      "evidence": [
+        "internal/application/usecases/shopper.go",
+        "internal/domain/shopper/shopper.go"
+      ]
+    },
+    {
+      "title": "Place an order",
+      "story": "Checkout makes and confirms a delivery promise for each shipment group, and only then stores the order. If an offer is stale, nothing is placed and fresh offers come back. Nothing is placed if delivery-promise is down.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "reads": [
+        "Saved addresses of the shopper"
+      ],
+      "command": {
+        "name": "PlaceOrder",
+        "operationId": "placeOrder"
+      },
+      "aggregate": "CustomerOrder",
+      "events": [
+        "CustomerOrderPlaced"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "queues one assignment for each shipment group"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "confirms any promise still provisional"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/checkout.go",
+        "internal/domain/customerorder/place.go",
+        "internal/adapters/outbound/deliverypromise/gateway.go"
+      ]
+    },
+    {
+      "title": "Release holds a failed checkout left behind",
+      "story": "If a later group fails to confirm, the promises already confirmed are cancelled. A cancel that itself fails is queued and retried until delivery-promise lets the capacity go.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Compensation worker"
+      },
+      "policy": "Every pass, retry the promise cancels a failed checkout could not perform",
+      "reads": [
+        "Queue of failed cancels"
+      ],
+      "command": {
+        "name": "CancelPromise",
+        "via": "job"
+      },
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "cancels the confirmed promise and returns its capacity"
+        }
+      ],
+      "evidence": [
+        "internal/adapters/outbound/compensation/worker.go",
+        "internal/application/compensation/compensation.go",
+        "internal/application/usecases/checkout.go"
+      ]
+    },
+    {
+      "title": "Ask to cancel an order",
+      "story": "The shopper asks to cancel every group not yet locked. It is a request: the group waits until order-sourcing answers, and a vendor that ships first wins.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "CancelOrder",
+        "operationId": "cancelOrder"
+      },
+      "aggregate": "CustomerOrder",
+      "events": [
+        "CustomerOrderCancelled"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "cancels each group not yet locked, or refuses it"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "cancels the promises of the cancelled groups"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/cancel.go",
+        "internal/domain/customerorder/cancel.go"
+      ]
+    },
+    {
+      "title": "Cancel a group whose promise cannot be kept",
+      "story": "When delivery-promise finds no route that can still deliver, the group is cancelled at once rather than left open.",
+      "trigger": {
+        "kind": "external",
+        "system": "delivery-promise",
+        "event": "PromiseUnkeepable"
+      },
+      "policy": "Whenever a promise is unkeepable, cancel its shipment group",
+      "command": {
+        "name": "CancelUnkeepableGroup",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "events": [
+        "CustomerOrderCancelled"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "cancels the group's assignment, or refuses it if already locked"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "cancels the group's promise"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consume_promise.go",
+        "internal/domain/customerorder/cancel.go"
+      ]
+    },
+    {
+      "title": "Accept a cancellation",
+      "story": "order-sourcing confirms it cancelled the group. The group, and the order if nothing else remains, becomes Cancelled.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentCancelled"
+      },
+      "policy": "Whenever order-sourcing cancels a group, mark the group cancelled",
+      "command": {
+        "name": "ConfirmGroupCancelled",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "evidence": [
+        "internal/application/usecases/consume_sourcing.go",
+        "internal/domain/customerorder/cancel.go"
+      ]
+    },
+    {
+      "title": "Accept a refusal to cancel",
+      "story": "If the group was already locked, order-sourcing refuses. The group goes back to Locked and the vendor ships.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentCancelRefused"
+      },
+      "policy": "Whenever order-sourcing refuses a cancel, put the group back to locked",
+      "command": {
+        "name": "RefuseGroupCancellation",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "evidence": [
+        "internal/application/usecases/consume_sourcing.go",
+        "internal/domain/customerorder/cancel.go"
+      ]
+    },
+    {
+      "title": "Follow a revised promise",
+      "story": "When delivery-promise moves a promise to a later window, the group's delivery window, ship-by and node move with it. A revision no newer than the stored one changes nothing.",
+      "trigger": {
+        "kind": "external",
+        "system": "delivery-promise",
+        "event": "PromiseRevised"
+      },
+      "policy": "Whenever a promise is revised, move the group's window to the new one",
+      "command": {
+        "name": "UpdateGroupPromise",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "evidence": [
+        "internal/application/usecases/consume_promise.go",
+        "internal/domain/customerorder/commands.go"
+      ]
+    },
+    {
+      "title": "Record the promise verdict",
+      "story": "The tracking view shows whether the promise was kept or broken, and by how many minutes. An at-risk promise shows its reason the same way.",
+      "trigger": {
+        "kind": "external",
+        "system": "delivery-promise",
+        "event": "PromiseBroken"
+      },
+      "policy": "Whenever a promise is kept or broken, record the verdict on the group",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "ApplyPromiseBroken",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_promise.go",
+        "internal/adapters/inbound/kafka/handlers.go"
+      ]
+    },
+    {
+      "title": "Mark a group in fulfilment",
+      "story": "order-sourcing locks the group to a node. The group moves from Promised to Locked and the assignment is linked to it.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentLocked"
+      },
+      "policy": "Whenever a group is locked at a node, mark it in fulfilment",
+      "updates": [
+        "Assignment links"
+      ],
+      "command": {
+        "name": "MarkInFulfillment",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "evidence": [
+        "internal/application/usecases/consume_sourcing.go",
+        "internal/domain/customerorder/commands.go"
+      ]
+    },
+    {
+      "title": "Mark a group shipped",
+      "story": "order-sourcing reports the packages. The group becomes Shipped, and deliveries that arrived early are replayed so the group can close at once.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentShipped"
+      },
+      "policy": "Whenever a group ships, mark it shipped and replay early deliveries",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "MarkGroupShipped",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "evidence": [
+        "internal/application/usecases/consume_sourcing.go",
+        "internal/domain/customerorder/commands.go"
+      ]
+    },
+    {
+      "title": "Close a group on delivery",
+      "story": "A package is delivered. A group is Delivered once every package it announced is delivered. A package shared by merged groups closes all of them.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageDelivered"
+      },
+      "policy": "Whenever a package is delivered, mark it for every group that names it",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "MarkGroupDelivered",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "evidence": [
+        "internal/application/usecases/consume_tracking.go",
+        "internal/domain/customerorder/commands.go"
+      ]
+    },
+    {
+      "title": "Mark a group lost or returned",
+      "story": "One lost package loses the group, and one returned package returns it. Both are final.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageLost"
+      },
+      "policy": "Whenever a package is lost or returned, mark its group lost or returned",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "MarkGroupLost",
+        "via": "policy"
+      },
+      "aggregate": "CustomerOrder",
+      "evidence": [
+        "internal/application/usecases/consume_tracking.go",
+        "internal/domain/customerorder/commands.go"
+      ]
+    },
+    {
+      "title": "Show the delivery window of the day",
+      "story": "The carrier narrows a package to a time window on the day. It shows on the tracking view only; the promise and the order are untouched. A delivery point flagged as failing twice shows as a notice the same way.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageEtaWindowAssigned"
+      },
+      "policy": "Whenever a package gets a day-of window, show it unless a newer one is stored",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "ApplyPackageEta",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_eta.go",
+        "internal/application/usecases/consume_point_flag.go",
+        "docs/adr/0014-day-of-eta-window-on-the-tracking-view.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "If delivery-promise is slow or down, checkout answers 503. There is no fallback promise, so the shopper must retry.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "The cancel check is advisory. A lock this context has not yet consumed is invisible, so order-sourcing's answer decides.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A delivery can arrive before the shipment it belongs to. It is stored and replayed later; an unknown order is skipped, not retried.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A shopper whose consolidated offer expired is re-quoted without that tier. This is an accepted limitation.",
+      "evidence": "docs/adr/0013-consolidated-tier-and-chosen-delivery-day.md"
+    },
+    {
+      "text": "The ship-to route is called restricted, but the fleet has no authentication and none is planned here.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Storefront callers must accept the fifth (consolidated) tier before any shopper can be offered it.",
+      "evidence": "docs/adr/0013-consolidated-tier-and-chosen-delivery-day.md"
+    },
+    {
+      "text": "The MCP tools and agent skills could later show the window's time zone, as the REST API does.",
+      "evidence": "docs/adr/0009-delivery-window-time-zone.md"
+    }
+  ]
+}

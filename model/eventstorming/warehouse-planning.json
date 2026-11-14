@@ -1,0 +1,323 @@
+{
+  "context": "warehouse-planning",
+  "oneLine": "Answers 'can this site handle the demand in this time window?': it works out how much a process path can do, plans against demand and announces any shortage.",
+  "pivotal": [
+    "ProcessCapacityRegistered",
+    "CapacityPlanCreated",
+    "CapacityPlanPublished",
+    "CapacityShortageDetected",
+    "BottleneckDetected"
+  ],
+  "rows": [
+    {
+      "title": "Declare how fast one station works",
+      "story": "An operator states how much one station of a process handles per hour at a site. The station counts from the floor map are multiplied by this figure when a path's capacity is worked out.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DeclareStationStandard",
+        "operationId": "declareStationStandard"
+      },
+      "aggregate": "StationStandard",
+      "evidence": [
+        "internal/application/usecases/declare_station_standard.go",
+        "internal/domain/processcapacity/station_standard.go"
+      ]
+    },
+    {
+      "title": "Declare the labour a dock booking costs",
+      "story": "An operator states how many labour minutes a dock appointment, and each shipment notice on it, costs at a site for a process path. Without it, bookings add no labour demand and the plan says so.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DeclareInboundLabourStandard",
+        "operationId": "declareInboundLabourStandard"
+      },
+      "aggregate": "LabourStandard",
+      "evidence": [
+        "internal/application/usecases/inbound_demand.go",
+        "internal/domain/inbound/labour_standard.go"
+      ]
+    },
+    {
+      "title": "Register a process path",
+      "story": "An operator seeds a process path with its steps, such as pick then pack. This context keeps its own paths and does not follow the process-path catalogue.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RegisterProcessPath",
+        "operationId": "registerProcessPath"
+      },
+      "aggregate": "ProcessPath",
+      "evidence": [
+        "internal/application/usecases/register_process_path.go",
+        "internal/domain/processpath/process_path.go"
+      ]
+    },
+    {
+      "title": "Register a capacity limit by hand",
+      "story": "A planner records one limit on a process at a location for a time window: labour, location, equipment, station, conveyor, buffer or replenishment. The lowest limit is what the process can really do. An announcement goes out only if that figure moves.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "RegisterProcessCapacityConstraint",
+        "operationId": "registerProcessCapacityConstraint"
+      },
+      "aggregate": "ProcessCapacity",
+      "events": [
+        "ProcessCapacityRegistered",
+        "ProcessCapacityChanged"
+      ],
+      "evidence": [
+        "internal/application/usecases/register_process_capacity_constraint.go",
+        "internal/domain/processcapacity/process_capacity.go",
+        "internal/domain/processcapacity/events.go"
+      ]
+    },
+    {
+      "title": "Draft a capacity plan",
+      "story": "A planner asks whether a path can handle the demand at a site in a time window. If no demand figure is typed in, the expected orders are used. Dock bookings are priced in labour minutes beside it and never added to order demand.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Path capacity",
+        "Expected orders",
+        "Dock booking demand"
+      ],
+      "command": {
+        "name": "CreateCapacityPlan",
+        "operationId": "createCapacityPlan"
+      },
+      "aggregate": "CapacityPlan",
+      "events": [
+        "CapacityPlanCreated"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "keeps the plan's window as a draft in its planned-capacity copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/create_capacity_plan.go",
+        "internal/domain/capacityplan/capacity_plan.go",
+        "internal/domain/capacityplan/events.go"
+      ]
+    },
+    {
+      "title": "Publish a plan and announce any shortage",
+      "story": "Publishing makes a draft plan official, once only. If the path can do less than the demand, the shortage and the slowest step are announced too.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "PublishCapacityPlan",
+        "operationId": "publishCapacityPlan"
+      },
+      "aggregate": "CapacityPlan",
+      "events": [
+        "CapacityPlanPublished",
+        "CapacityShortageDetected",
+        "BottleneckDetected"
+      ],
+      "then": [
+        {
+          "system": "order-management",
+          "does": "marks the window published and flags orders whose promise falls in a shortage; moves no promise"
+        },
+        {
+          "system": "network-inventory-planning",
+          "does": "keeps the published plan window in a local copy; plans without a site are skipped"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/publish_capacity_plan.go",
+        "internal/domain/capacityplan/capacity_plan.go",
+        "internal/domain/capacityplan/events.go"
+      ]
+    },
+    {
+      "title": "Turn committed shifts into labour limits",
+      "story": "Each line of a committed shift plan says how many people work a path, at what rate, for how many hours. That becomes a labour limit from the shift start for those hours. The rate is assumed to be units per hour.",
+      "trigger": {
+        "kind": "external",
+        "system": "workforce-management",
+        "event": "ShiftPlanCommitted"
+      },
+      "policy": "Whenever a shift plan line is committed, register its heads times rate as a labour limit for its hours",
+      "command": {
+        "name": "RegisterProcessCapacityConstraint",
+        "via": "policy"
+      },
+      "aggregate": "ProcessCapacity",
+      "events": [
+        "ProcessCapacityRegistered",
+        "ProcessCapacityChanged"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/labor_capacity_consumer.go",
+        "internal/application/usecases/register_process_capacity_constraint.go",
+        "internal/domain/processcapacity/process_capacity.go"
+      ]
+    },
+    {
+      "title": "Count a new slot on the floor",
+      "story": "facility-layout announces each slot. Storage slots add storage positions and work-center slots add stations, per zone. Station counts are multiplied by the declared station standard when a path's capacity is worked out.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotRegistered"
+      },
+      "policy": "Whenever a slot is registered, add it to its zone's count of storage positions or stations",
+      "updates": [
+        "Storage positions and stations"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/storage_capacity_consumer.go",
+        "docs/adr/0002-station-capacity-composition.md"
+      ]
+    },
+    {
+      "title": "Remove a retired slot from the count",
+      "story": "When facility-layout takes a slot out of service, it comes out of its zone's count. The count only ever follows the floor map and registers no capacity limit itself.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotDecommissioned"
+      },
+      "policy": "Whenever a slot is decommissioned, take it off its zone's count of positions or stations",
+      "updates": [
+        "Storage positions and stations"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/storage_capacity_consumer.go",
+        "docs/adr/0002-station-capacity-composition.md"
+      ]
+    },
+    {
+      "title": "Keep the expected-orders list",
+      "story": "Each allocated order, fully or partly, counts once at its latest promise cutoff toward the demand of the configured site. Cancellations are not seen, so the figure can overstate demand.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-management",
+        "event": "OrderAllocated"
+      },
+      "policy": "Whenever an order is allocated, fully or partly, record it at its promise cutoff for the configured site",
+      "updates": [
+        "Expected orders"
+      ],
+      "command": {
+        "name": "RecordOrderDemand",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/expected_demand.go",
+        "internal/adapters/inbound/kafka/order_demand_consumer.go",
+        "docs/adr/0004-demand-ingestion-from-order-management.md"
+      ]
+    },
+    {
+      "title": "Keep the dock-bookings list",
+      "story": "dock-scheduling announces bookings, moves, cancellations and no-shows. Each has a version and the newest wins, so a cancellation that arrives first still sticks. Cancelled and missed bookings stop counting as demand.",
+      "trigger": {
+        "kind": "external",
+        "system": "dock-scheduling",
+        "event": "DockAppointmentBooked"
+      },
+      "policy": "Whenever a dock appointment is booked, moved, cancelled or missed, update the dock-booking demand copy",
+      "updates": [
+        "Dock booking demand"
+      ],
+      "command": {
+        "name": "RecordInboundAppointment",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/inbound_demand.go",
+        "internal/adapters/inbound/kafka/dock_appointment_consumer.go",
+        "docs/adr/0020-inbound-demand-from-dock-scheduling.md"
+      ]
+    },
+    {
+      "title": "Count what the floor really completes",
+      "story": "Completed tasks are counted per process step and minute. A plan's variance view sets them against the planned capacity. It is advice only and never changes a plan.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCompleted"
+      },
+      "policy": "Whenever a task is completed, add it to the count for its process step and minute",
+      "updates": [
+        "Observed completions"
+      ],
+      "command": {
+        "name": "RecordObservedCompletion",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/observed_capacity.go",
+        "internal/adapters/inbound/kafka/observed_capacity_consumer.go",
+        "docs/adr/0017-inbound-labour-demand-and-observed-capacity-feedback.md"
+      ]
+    },
+    {
+      "title": "Feed the plan reports",
+      "story": "The service reads its own plan announcements and keeps daily facts for the reports: bottleneck frequency, shortage trend and plan throughput. Capacity-limit events are not part of these reports.",
+      "trigger": {
+        "kind": "event",
+        "event": "CapacityPlanPublished"
+      },
+      "policy": "Whenever a plan is created or published, add it to the plan facts behind the reports",
+      "updates": [
+        "Plan reports"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "docs/adr/0005-analytics-read-side.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A shift event carries no window or rate unit. The window is the event time plus planned hours, and the unit is assumed to be units per hour.",
+      "evidence": "docs/adr/0003-window-coverage-semantics.md"
+    },
+    {
+      "text": "Order and task events carry no site, so all demand and completions go to one configured site. Cancellations are not netted, so demand can be overstated.",
+      "evidence": "docs/adr/0004-demand-ingestion-from-order-management.md"
+    },
+    {
+      "text": "Stations counted without a declared station standard only raise a warning. No throughput is invented for them.",
+      "evidence": "docs/adr/0002-station-capacity-composition.md"
+    },
+    {
+      "text": "Process paths are seeded by hand. The process-path catalogue is deliberately not consumed.",
+      "evidence": "docs/adr/0001-warehouse-planning-bounded-context.md"
+    },
+    {
+      "text": "ProcessCapacityRegistered and ProcessCapacityChanged are published, but their consumer is marked as not built yet.",
+      "evidence": "apis/asyncapi.yaml"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Adjusting planned capacity automatically from observed throughput is left to a later decision, which must show it cannot oscillate.",
+      "evidence": "docs/adr/0017-inbound-labour-demand-and-observed-capacity-feedback.md"
+    },
+    {
+      "text": "If order events one day carry a usable site, demand can be attributed per site instead of to one configured site.",
+      "evidence": "docs/adr/0004-demand-ingestion-from-order-management.md"
+    }
+  ]
+}

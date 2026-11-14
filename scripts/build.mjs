@@ -12,6 +12,7 @@ import url from 'node:url';
 import { engineeringView, renderEngineering } from './engineering.mjs';
 import { architectureView, renderArchitecture } from './architecture.mjs';
 import { briefingsView, renderBriefings } from './briefings.mjs';
+import { esView, renderEventstorming } from './eventstorming.mjs';
 
 const ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'src');
@@ -26,6 +27,7 @@ const facts = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'facts.json'), 
 const engineering = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'engineering.json'), 'utf8'));
 const architecture = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'architecture.json'), 'utf8'));
 const briefings = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'briefings.json'), 'utf8'));
+const eventstorming = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'eventstorming.json'), 'utf8'));
 
 // ---------- view model: friendly keys over facts.json ----------
 const fmt = (n) => new Intl.NumberFormat('en-US').format(n);
@@ -66,6 +68,7 @@ const view = {
   eng: engineeringView(engineering),
   arch: architectureView(architecture),
   brief: briefingsView(briefings),
+  es: esView(eventstorming),
 };
 
 // map payload: only what the browser needs
@@ -82,12 +85,17 @@ const mapData = {
   edges: facts.edges.map((e) => [ids.indexOf(e.from), ids.indexOf(e.to)]),
 };
 
+const dtLabel = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const esPages = renderEventstorming({ data: eventstorming, cfg, updatedLabel: dtLabel(eventstorming.generatedAt) });
+
 const lookup = (obj, p) => p.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
 
 function render(html) {
   // conditionals: {{#key}}...{{/key}} kept only when cfg[key] is non-empty
   html = html.replace(/\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (_, k, body) => (cfg[k] ? body : ''));
   html = html.replace(/\{\{json:map\}\}/g, () => JSON.stringify(mapData).replace(/</g, '\\u003c'));
+  html = html.replace(/\{\{html:esDemo\}\}/g, () => esPages.demoRow());
+  html = html.replace(/\{\{html:esLegend\}\}/g, () => esPages.legend());
   html = html.replace(/\{\{siteUrl\}\}/g, cfg.siteUrl);
   return html.replace(/\{\{([\w.]+)\}\}/g, (m, p) => {
     const v = lookup(view, p);
@@ -159,6 +167,14 @@ for (const pg of briefPages) {
   fs.writeFileSync(path.join(DIST, pg.file), html);
 }
 
+// EventStorming: the hub + one board per bounded context (scripts/eventstorming.mjs)
+for (const pg of esPages) {
+  let html = pg.html;
+  for (const [from, to] of hashed) html = html.split(`"${from}"`).join(`"${to}"`);
+  fs.mkdirSync(path.dirname(path.join(DIST, pg.file)), { recursive: true });
+  fs.writeFileSync(path.join(DIST, pg.file), html);
+}
+
 // crawlers: sitemap + robots pointer only when the public origin is known (absolute URLs are required)
 if (cfg.siteUrl) {
   const today = new Date().toISOString().slice(0, 10);
@@ -167,10 +183,11 @@ if (cfg.siteUrl) {
     engPages.map((pg) => `  <url><loc>${cfg.siteUrl}/${pg.file.replace(/index\.html$/, '')}</loc><lastmod>${today}</lastmod></url>\n`).join('') +
     archPages.map((pg) => `  <url><loc>${cfg.siteUrl}/${pg.file.replace(/index\.html$/, '')}</loc><lastmod>${today}</lastmod></url>\n`).join('') +
     briefPages.map((pg) => `  <url><loc>${cfg.siteUrl}/${pg.file.replace(/index\.html$/, '')}</loc><lastmod>${today}</lastmod></url>\n`).join('') +
+    esPages.map((pg) => `  <url><loc>${cfg.siteUrl}/${pg.file.replace(/index\.html$/, '')}</loc><lastmod>${today}</lastmod></url>\n`).join('') +
     '</urlset>\n');
   fs.appendFileSync(path.join(DIST, 'robots.txt'), `Sitemap: ${cfg.siteUrl}/sitemap.xml\n`);
 }
 
 const size = (p) => fs.statSync(p).size;
 const total = (function walk(d) { return fs.readdirSync(d, { withFileTypes: true }).reduce((s, e) => s + (e.isDirectory() ? walk(path.join(d, e.name)) : size(path.join(d, e.name))), 0); })(DIST);
-console.log(`built dist/ (${(total / 1024).toFixed(0)} KiB, ${hashed.size} hashed assets, ${engPages.length} engineering pages, ${archPages.length} architecture pages, ${briefPages.length} briefing pages) site=${cfg.siteUrl || '(relative)'} docs=${cfg.docsUrl}`);
+console.log(`built dist/ (${(total / 1024).toFixed(0)} KiB, ${hashed.size} hashed assets, ${engPages.length} engineering pages, ${archPages.length} architecture pages, ${briefPages.length} briefing pages, ${esPages.length} eventstorming pages) site=${cfg.siteUrl || '(relative)'} docs=${cfg.docsUrl}`);

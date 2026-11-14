@@ -1,0 +1,370 @@
+{
+  "context": "node-performance",
+  "oneLine": "Grades each fulfillment node on what it actually did over the last 7 and 30 days, and tells the network when a grade changes.",
+  "pivotal": [
+    "NodeScorecardUpdated",
+    "NodeThresholdBreached",
+    "NodeTierEligibilityChanged"
+  ],
+  "rows": [
+    {
+      "title": "Remember a purchase order's deadlines",
+      "story": "When a vendor is sent a purchase order, this context keeps its ship-by and acknowledge-by deadlines. Later facts are judged against them. Nothing is counted yet.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "PurchaseOrderIssued"
+      },
+      "policy": "Whenever a purchase order is issued, keep its ship-by and acknowledge-by deadlines",
+      "updates": [
+        "Purchase order deadlines"
+      ],
+      "command": {
+        "name": "Intake.PurchaseOrderIssued",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/purchaseorder.go"
+      ]
+    },
+    {
+      "title": "Fill in the ship-by deadline",
+      "story": "The shipment confirmation repeats the ship-by deadline. It is merged into what is already known, so either message can arrive first. The vendor's own ship time is not used.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "VendorShipmentConfirmed"
+      },
+      "policy": "Whenever a vendor confirms a shipment, complete the purchase order's ship-by deadline",
+      "updates": [
+        "Purchase order deadlines"
+      ],
+      "command": {
+        "name": "Intake.ShipmentConfirmed",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/purchaseorder.go"
+      ]
+    },
+    {
+      "title": "Judge an acknowledgement",
+      "story": "A vendor accepts or rejects a purchase order. The answer counts as late if it comes in the last tenth of the time allowed. Without the order's deadlines it cannot be judged and is retried.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "PurchaseOrderAccepted"
+      },
+      "policy": "Whenever a purchase order is accepted or rejected, record how timely the answer was",
+      "reads": [
+        "Purchase order deadlines"
+      ],
+      "command": {
+        "name": "Intake.PurchaseOrderAcknowledged",
+        "via": "policy"
+      },
+      "aggregate": "NodeScorecard",
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/observation.go",
+        "internal/domain/scorecard/scorecard.go"
+      ]
+    },
+    {
+      "title": "Count an expired order",
+      "story": "A purchase order ran out of time without an answer. That counts against the node as a late acknowledgement, always.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "PurchaseOrderExpired"
+      },
+      "policy": "Whenever a purchase order expires, record a late acknowledgement",
+      "command": {
+        "name": "Intake.PurchaseOrderExpired",
+        "via": "policy"
+      },
+      "aggregate": "NodeScorecard",
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/observation.go",
+        "internal/domain/scorecard/scorecard.go"
+      ]
+    },
+    {
+      "title": "Judge a handover against the ship-by time",
+      "story": "The carrier took a package from the node. It counts as on time if the handover is not after the purchase order's ship-by time; the exact boundary is on time.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageHandedOver"
+      },
+      "policy": "Whenever a package is handed over, record whether it beat the ship-by time",
+      "reads": [
+        "Purchase order deadlines"
+      ],
+      "command": {
+        "name": "Intake.PackageHandedOver",
+        "via": "policy"
+      },
+      "aggregate": "NodeScorecard",
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/observation.go",
+        "internal/domain/scorecard/scorecard.go"
+      ]
+    },
+    {
+      "title": "Count a kept promise",
+      "story": "delivery-promise says a delivery promise was kept. That counts in the node's favour.",
+      "trigger": {
+        "kind": "external",
+        "system": "delivery-promise",
+        "event": "PromiseKept"
+      },
+      "policy": "Whenever a promise is kept, record it for the node",
+      "command": {
+        "name": "Intake.PromiseKept",
+        "via": "policy"
+      },
+      "aggregate": "NodeScorecard",
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/observation.go",
+        "internal/domain/scorecard/scorecard.go"
+      ]
+    },
+    {
+      "title": "Count a broken promise, if it is the node's fault",
+      "story": "A broken promise only counts against the node when the cause is the node's: late, late handover, vendor refusal or an unanswered order. A lost or returned package is the network's, and is ignored.",
+      "trigger": {
+        "kind": "external",
+        "system": "delivery-promise",
+        "event": "PromiseBroken"
+      },
+      "policy": "Whenever a promise is broken, record it only for a cause the node is responsible for",
+      "command": {
+        "name": "Intake.PromiseBroken",
+        "via": "policy"
+      },
+      "aggregate": "NodeScorecard",
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/observation.go",
+        "internal/domain/scorecard/scorecard.go"
+      ]
+    },
+    {
+      "title": "Count an inventory feed",
+      "story": "offer-availability applied a stock feed from the node. The gaps between feeds show how fresh the node's stock numbers are.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "InventoryFeedApplied"
+      },
+      "policy": "Whenever a node's inventory feed is applied, record the time of the feed",
+      "command": {
+        "name": "Intake.InventoryFeedApplied",
+        "via": "policy"
+      },
+      "aggregate": "NodeScorecard",
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/observation.go",
+        "internal/domain/scorecard/metrics.go"
+      ]
+    },
+    {
+      "title": "Note when an inbound shipment left",
+      "story": "A seller's shipment to the node has been shipped. Its ship time is kept, first one wins, to compare with the receipt later. It is shown on reads but never graded.",
+      "trigger": {
+        "kind": "external",
+        "system": "seller-inbound",
+        "event": "InboundShipmentShipped"
+      },
+      "policy": "Whenever an inbound shipment is shipped, keep its shipped time",
+      "updates": [
+        "Inbound shipments"
+      ],
+      "command": {
+        "name": "Intake.InboundShipmentShipped",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/inbound.go",
+        "docs/adr/0009-inbound-timeliness-and-accuracy-metrics.md"
+      ]
+    },
+    {
+      "title": "Note what an inbound receipt found",
+      "story": "The node reports what it received for a shipment. Carton counts are kept, the first report wins, and the receipt is joined to the shipment when both are known. Shown on reads, never graded.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "InboundReceiptSubmitted"
+      },
+      "policy": "Whenever an inbound receipt is submitted, keep its carton counts",
+      "updates": [
+        "Inbound receipts"
+      ],
+      "command": {
+        "name": "Intake.InboundReceiptSubmitted",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "internal/domain/scorecard/inbound.go",
+        "docs/adr/0009-inbound-timeliness-and-accuracy-metrics.md"
+      ]
+    },
+    {
+      "title": "Note the node's declared profile and do nothing",
+      "story": "The node's declared profile arrives and is only logged as seen. A grade comes from observed facts, never from what a vendor declared.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeOperationalProfileDeclared"
+      },
+      "policy": "Whenever a node declares its profile, record that the message arrived and change nothing",
+      "command": {
+        "name": "Intake.Acknowledge",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers.go",
+        "internal/application/usecases/intake.go",
+        "docs/adr/0002-aggregates-and-invariants.md"
+      ]
+    },
+    {
+      "title": "Recompute the grades",
+      "story": "A periodic run recomputes every scorecard that has new facts or facts that left the window. A node needs 50 observations to get an A to D grade; below that it stays provisional and nothing is published.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Recompute run"
+      },
+      "policy": "Every run, recompute the due scorecards and announce a changed grade or metric",
+      "command": {
+        "name": "Recompute",
+        "via": "timer"
+      },
+      "aggregate": "NodeScorecard",
+      "events": [
+        "NodeScorecardUpdated"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "keeps the 30-day grade; B pads handling time, C and D skip a pickup option"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "keeps the 30-day grade and adds a cost penalty for B, C and D"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/recompute.go",
+        "internal/domain/scorecard/scorecard.go",
+        "internal/domain/scorecard/grade.go"
+      ]
+    },
+    {
+      "title": "Warn when a metric gets worse",
+      "story": "When a graded node's metric crosses its bound in the wrong direction between two graded runs, a breach is raised, one per metric. It goes to analytics only, nobody in the network reacts.",
+      "trigger": {
+        "kind": "event",
+        "event": "NodeScorecardUpdated"
+      },
+      "policy": "Whenever a graded scorecard changes, raise a breach for each metric that crossed its bound",
+      "command": {
+        "name": "Recompute",
+        "via": "policy"
+      },
+      "aggregate": "NodeScorecard",
+      "events": [
+        "NodeThresholdBreached"
+      ],
+      "evidence": [
+        "internal/application/usecases/recompute.go",
+        "internal/domain/scorecard/scorecard.go",
+        "internal/domain/scorecard/grade.go"
+      ]
+    },
+    {
+      "title": "Suspend or reinstate a node's fast tiers",
+      "story": "On the 7-day card, a graded on-time handover rate below 90% suspends the node from same-day and next-day. Three separate days at 95% or better reinstate it. Each flip is announced once per tier.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Recompute run"
+      },
+      "policy": "Every run, flip a node's fast-tier eligibility when its 7-day on-time rate says so",
+      "command": {
+        "name": "Recompute",
+        "via": "timer"
+      },
+      "aggregate": "NodeScorecard",
+      "events": [
+        "NodeTierEligibilityChanged"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "keeps each node's eligibility per tier and leaves ineligible nodes out of fast-tier offers"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/recompute.go",
+        "internal/domain/scorecard/eligibility.go",
+        "docs/adr/0013-fast-tier-eligibility-from-the-7-day-window.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A handover or answer that beats its purchase order is retried, then parked in a failure queue. Nothing re-processes that queue.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "Declared profile next to measured behaviour is not modelled: the profile message is received and ignored.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "The broken-promise causes the model names differ from what delivery-promise sends; in practice only LATE counts against a node.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "Inbound accuracy mixes node and seller causes until they are separated. It is informational and never graded.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "After a stuck event hits its send-attempt cap, a later event of the same scorecard can reach consumers first.",
+      "evidence": "docs/adr/0005-outbox-relay-and-attempt-cap.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "If inbound timeliness should count towards a grade, a new decision is needed: the facts would become observations.",
+      "evidence": "docs/adr/0009-inbound-timeliness-and-accuracy-metrics.md"
+    },
+    {
+      "text": "A node directory or a declared-versus-measured view could use the profile messages already received.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "A compacted counter form is the follow-up if one node's volume grows by orders of magnitude.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    }
+  ]
+}

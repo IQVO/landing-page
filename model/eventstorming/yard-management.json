@@ -1,0 +1,479 @@
+{
+  "context": "yard-management",
+  "oneLine": "The physical yard outside the walls: who passed the gate, where each trailer is, who moves it, and what is done at the door.",
+  "pivotal": [
+    "VisitCheckedIn",
+    "TrailerDocked",
+    "DoorWorkCompleted",
+    "TrailerUndocked",
+    "TrailerDeparted"
+  ],
+  "rows": [
+    {
+      "title": "Check a truck in at the gate",
+      "story": "The gate clerk records a visit and its trailers. The seal is compared with the booking, and each trailer gets a move: to its door if on time and the door is free, otherwise to a spot. Site policy can turn a seal mismatch or a suspended carrier away.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Gate clerk"
+      },
+      "reads": [
+        "Appointments (copy from dock-scheduling)",
+        "Yard spots and doors (copy from facility-layout)",
+        "Carrier registry (copy from dock-scheduling)",
+        "Yard policy"
+      ],
+      "command": {
+        "name": "CheckInVisit",
+        "operationId": "checkInVisit"
+      },
+      "aggregate": "Visit",
+      "events": [
+        "VisitCheckedIn",
+        "SealExceptionRaised",
+        "YardMoveRequested"
+      ],
+      "then": [
+        {
+          "system": "dock-scheduling",
+          "does": "marks the appointment as arrived: early, on time or late"
+        },
+        {
+          "system": "inbound-receiving",
+          "does": "stores the gate arrival, the start of the dock-to-stock clock"
+        },
+        {
+          "system": "exception-management",
+          "does": "opens a case when the seal does not match"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/gate_checkin.go",
+        "internal/application/usecases/targeting.go",
+        "internal/domain/yardvisit/visit.go"
+      ]
+    },
+    {
+      "title": "Turn a truck away at the gate",
+      "story": "The gate clerk refuses a visit and records the reason. The refused visit is recorded as rejected and gets no trailer.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Gate clerk"
+      },
+      "command": {
+        "name": "RejectAtGate",
+        "operationId": "rejectAtGate"
+      },
+      "aggregate": "Visit",
+      "events": [
+        "VisitRejected"
+      ],
+      "then": [
+        {
+          "system": "dock-scheduling",
+          "does": "cancels the booked appointment with the reason 'turned away'"
+        },
+        {
+          "system": "exception-management",
+          "does": "opens a case for the rejected visit"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/gate_checkin.go",
+        "internal/domain/yardvisit/visit.go"
+      ]
+    },
+    {
+      "title": "Ask for a trailer to be moved",
+      "story": "A yard supervisor asks for a trailer to go to a spot or a door. The destination is checked and reserved. The yard also asks by itself: it calls the next trailer in when a door frees up and clears a dropped trailer after door work.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Yard supervisor"
+      },
+      "reads": [
+        "Yard spots and doors (copy from facility-layout)",
+        "Door closures (copy from dock-scheduling)"
+      ],
+      "command": {
+        "name": "RequestMove",
+        "operationId": "requestMove"
+      },
+      "aggregate": "Move",
+      "events": [
+        "YardMoveRequested"
+      ],
+      "evidence": [
+        "internal/application/usecases/moves.go",
+        "internal/application/usecases/doors.go",
+        "internal/domain/yardmove/yardmove.go"
+      ]
+    },
+    {
+      "title": "Hand the next move to a yard-truck driver",
+      "story": "A hostler (yard-truck driver) asks for work. The yard picks the most urgent waiting move and lends it for a limited time. The trailer leaves its place at once; leaving a door frees that door.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Hostler"
+      },
+      "command": {
+        "name": "ClaimNextMove",
+        "operationId": "claimNextMove"
+      },
+      "aggregate": "Move",
+      "events": [
+        "YardMoveClaimed",
+        "TrailerUndocked"
+      ],
+      "then": [
+        {
+          "system": "dock-scheduling",
+          "does": "completes the appointment when its trailer leaves the door"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/moves.go",
+        "internal/domain/yardmove/yardmove.go",
+        "internal/domain/trailer/movement.go"
+      ]
+    },
+    {
+      "title": "Park or dock the trailer",
+      "story": "The hostler reports where the trailer was left. The move ends and the trailer is parked on a spot or docked at a door, in one step. An occupied place is refused and the move stays open.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Hostler"
+      },
+      "reads": [
+        "Yard spots and doors (copy from facility-layout)"
+      ],
+      "command": {
+        "name": "CompleteMove",
+        "operationId": "completeMove"
+      },
+      "aggregate": "Move",
+      "events": [
+        "YardMoveCompleted",
+        "TrailerParked",
+        "TrailerDocked"
+      ],
+      "then": [
+        {
+          "system": "dock-scheduling",
+          "does": "moves the booking to the door the trailer really took, if different"
+        },
+        {
+          "system": "outbound-shipping",
+          "does": "attaches the trailer to the load at that door and starts loading"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/moves.go",
+        "internal/domain/trailer/trailer.go",
+        "internal/domain/trailer/placement.go"
+      ]
+    },
+    {
+      "title": "Start work at the door",
+      "story": "A dock operator starts unloading or loading a docked trailer. If the site asks for it, an unsecured trailer is refused, and so is loading before a required inspection has passed.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock operator"
+      },
+      "command": {
+        "name": "StartDoorWork",
+        "operationId": "startDoorWork"
+      },
+      "aggregate": "Trailer",
+      "events": [
+        "DoorWorkStarted"
+      ],
+      "evidence": [
+        "internal/application/usecases/doors.go",
+        "internal/domain/trailer/work.go"
+      ]
+    },
+    {
+      "title": "Secure a docked trailer",
+      "story": "A dock operator records that the trailer is held to the dock by a vehicle restraint or wheel chocks. It must be docked and have no open move.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock operator"
+      },
+      "command": {
+        "name": "SecureTrailer",
+        "operationId": "secureTrailer"
+      },
+      "aggregate": "Trailer",
+      "events": [
+        "TrailerSecured"
+      ],
+      "evidence": [
+        "internal/application/usecases/doors.go",
+        "internal/domain/trailer/securing.go",
+        "docs/adr/0013-dock-safety-interlock.md"
+      ]
+    },
+    {
+      "title": "Finish unloading when the receipt closes",
+      "story": "inbound-receiving closes a receipt. When every ASN on a docked trailer has a closed receipt, its door work is completed and the trailer counts as empty. Staff can also complete door work by hand.",
+      "trigger": {
+        "kind": "external",
+        "system": "inbound-receiving",
+        "event": "ReceiptClosed"
+      },
+      "policy": "Whenever the last receipt of a docked trailer closes, complete its door work",
+      "updates": [
+        "Receipts at the door"
+      ],
+      "command": {
+        "name": "CompleteDoorWork",
+        "operationId": "completeDoorWork"
+      },
+      "aggregate": "Trailer",
+      "events": [
+        "DoorWorkCompleted"
+      ],
+      "then": [
+        {
+          "system": "outbound-shipping",
+          "does": "keeps the door-work completion for its load adherence view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/inbound_receiving_consumer.go",
+        "internal/domain/trailer/work.go"
+      ]
+    },
+    {
+      "title": "Release the securing before the trailer leaves",
+      "story": "A dock operator frees the trailer from restraint or chocks. This is needed before it can leave its door, and is refused while door work is in progress.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock operator"
+      },
+      "command": {
+        "name": "ReleaseTrailerSecuring",
+        "operationId": "releaseTrailerSecuring"
+      },
+      "aggregate": "Trailer",
+      "events": [
+        "TrailerSecuringReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/doors.go",
+        "internal/domain/trailer/securing.go",
+        "docs/adr/0013-dock-safety-interlock.md"
+      ]
+    },
+    {
+      "title": "Inspect a trailer",
+      "story": "An inspector works through a checklist and completes it. If a required item fails, the inspection fails and the trailer is put on hold in the same step.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Inspector"
+      },
+      "reads": [
+        "Inspection checklist templates"
+      ],
+      "command": {
+        "name": "CompleteInspection",
+        "operationId": "completeInspection"
+      },
+      "aggregate": "Inspection",
+      "events": [
+        "InspectionCompleted",
+        "InspectionFailed",
+        "TrailerHeld"
+      ],
+      "evidence": [
+        "internal/application/usecases/inspections.go",
+        "internal/domain/inspection/inspection.go",
+        "docs/adr/0015-compliance-inspections.md"
+      ]
+    },
+    {
+      "title": "Release a hold on a trailer",
+      "story": "A yard supervisor lifts the hold on a trailer, whether it was placed by hand, by a broken seal or by a failed inspection.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Yard supervisor"
+      },
+      "command": {
+        "name": "ReleaseHold",
+        "operationId": "releaseHold"
+      },
+      "aggregate": "Trailer",
+      "events": [
+        "TrailerHoldReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/doors.go",
+        "internal/domain/trailer/trailer.go"
+      ]
+    },
+    {
+      "title": "Check a truck out of the yard",
+      "story": "The gate clerk lets the visit leave with the trailers it takes. Each must be on site and released, and an inspection before departure may be required. A trailer left behind is a drop and stays.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Gate clerk"
+      },
+      "command": {
+        "name": "CheckOutVisit",
+        "operationId": "checkOutVisit"
+      },
+      "aggregate": "Visit",
+      "events": [
+        "VisitCheckedOut",
+        "TrailerDeparted",
+        "TrailerUndocked"
+      ],
+      "then": [
+        {
+          "system": "outbound-shipping",
+          "does": "confirms the shipment and issues the bill of lading when the load is closed"
+        },
+        {
+          "system": "dock-scheduling",
+          "does": "completes the appointment when its trailer leaves the door"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/gate_checkout.go",
+        "internal/domain/yardvisit/visit.go",
+        "internal/domain/trailer/trailer.go"
+      ]
+    },
+    {
+      "title": "Free the yard when a booking falls through",
+      "story": "dock-scheduling reports a booking cancelled, missed or moved to another door. The yard cancels the open moves that were bringing a trailer to that door. A trailer already on site stays where it is.",
+      "trigger": {
+        "kind": "external",
+        "system": "dock-scheduling",
+        "event": "DockAppointmentNoShow"
+      },
+      "policy": "Whenever a booking is cancelled, missed or moved, cancel its open hostler moves to the door",
+      "updates": [
+        "Appointments (copy from dock-scheduling)"
+      ],
+      "command": {
+        "name": "CancelMove",
+        "operationId": "cancelMove"
+      },
+      "aggregate": "Move",
+      "events": [
+        "YardMoveCancelled"
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/dock_scheduling_consumer.go",
+        "internal/domain/yardmove/yardmove.go"
+      ]
+    },
+    {
+      "title": "Take back moves whose lease ran out",
+      "story": "A sweep looks for claimed moves whose time ran out. Each goes back to the waiting list and its trailer back to where it was, unless that place was taken meanwhile.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Scheduler cron"
+      },
+      "policy": "Every sweep, put each claimed move whose lease has expired back on the waiting list",
+      "command": {
+        "name": "SweepMoveLeases",
+        "operationId": "sweepMoveLeases"
+      },
+      "aggregate": "Move",
+      "events": [
+        "YardMoveLeaseExpired"
+      ],
+      "evidence": [
+        "internal/application/usecases/moves.go",
+        "internal/domain/yardmove/yardmove.go"
+      ]
+    },
+    {
+      "title": "Chase trailers that stay too long",
+      "story": "A sweep finds trailers on site whose time reached the limit for their kind and raises one alert for each.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Scheduler cron"
+      },
+      "policy": "Every sweep, raise a dwell alert once for each trailer past its limit",
+      "reads": [
+        "Yard policy"
+      ],
+      "command": {
+        "name": "SweepDwell",
+        "operationId": "sweepDwell"
+      },
+      "aggregate": "Trailer",
+      "events": [
+        "TrailerDwellExceeded"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens a case for the overdue trailer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/checks_policy.go",
+        "internal/domain/trailer/trailer.go"
+      ]
+    },
+    {
+      "title": "Audit the yard against the records",
+      "story": "A supervisor walks the yard, notes what is at each place, then closes the check. It reports every difference from what the yard believes. A place not seen is missing if a trailer should be there.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Yard supervisor"
+      },
+      "command": {
+        "name": "CloseYardCheck",
+        "operationId": "closeYardCheck"
+      },
+      "aggregate": "Check",
+      "events": [
+        "YardCheckClosed"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens one case per difference; a clean check opens none"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/checks_policy.go",
+        "internal/domain/yardcheck/yardcheck.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A door closure or a retired slot under a trailer already there is not handled. Closures only guard arrival. Handling the case is left to a later phase.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "Hazmat and reefer rules trust the declared load. The yard cannot check what a trailer holds, and one classified after parking stays where it is.",
+      "evidence": "docs/adr/0014-hazmat-and-reefer-placement.md"
+    },
+    {
+      "text": "Securing, release and inspection results are published but nobody reads them yet.",
+      "evidence": "docs/adr/0004-cloudevents-envelope-and-type-catalogue.md"
+    },
+    {
+      "text": "The event contract does not yet declare who made a change when an agent writes through the tool interface. The data is on the wire.",
+      "evidence": "docs/adr/0007-mcp-server.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "exception-management is the planned reader of failed inspections, so that a failure becomes an exception case to work.",
+      "evidence": "docs/adr/0015-compliance-inspections.md"
+    },
+    {
+      "text": "A hazmat segregation rule, so classes may not stand on adjacent spots, needs spot neighbours that facility-layout does not publish yet. A later ADR is planned.",
+      "evidence": "docs/adr/0014-hazmat-and-reefer-placement.md"
+    }
+  ]
+}

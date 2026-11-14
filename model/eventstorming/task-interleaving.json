@@ -1,0 +1,284 @@
+{
+  "context": "task-interleaving",
+  "oneLine": "After a station finishes a task, suggests the few nearest open tasks so operators walk less between jobs. Advice only: it never assigns or claims work.",
+  "pivotal": [
+    "InterleavingPolicyDeclared",
+    "InterleavingHintIssued",
+    "InterleavingHintConsumed",
+    "InterleavingHintExpired"
+  ],
+  "rows": [
+    {
+      "title": "Set a site's hint rules",
+      "story": "An operator sets, for one site, how far a detour may be, how many suggestions to give, how long a hint lives and which task types qualify. Until a site has rules it gets no hints at all.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DeclareInterleavingPolicy",
+        "operationId": "declareInterleavingPolicy"
+      },
+      "aggregate": "Policy",
+      "events": [
+        "InterleavingPolicyDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/declare_policy.go",
+        "internal/domain/policy/policy.go"
+      ]
+    },
+    {
+      "title": "Suggest the next tasks after a completion",
+      "story": "A station finishes a task, so it now stands at that task's end point. If the site has rules, the nearest open tasks are ranked and issued as a hint. A new hint replaces the station's older live one.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCompleted"
+      },
+      "policy": "Whenever a task is completed, record where the station stands and, if the site has rules, rank the nearest open tasks",
+      "reads": [
+        "Open tasks",
+        "Site hint rules",
+        "Location points"
+      ],
+      "command": {
+        "name": "ApplyTaskCompleted",
+        "via": "policy"
+      },
+      "aggregate": "StationTrip",
+      "events": [
+        "InterleavingHintIssued"
+      ],
+      "then": [
+        {
+          "system": "fulfillment-execution",
+          "does": "keeps the hint and uses it to break a tie within one priority band when the station claims its next task"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_task_completed.go",
+        "internal/application/usecases/ranker.go",
+        "internal/domain/stationtrip/trip.go",
+        "internal/domain/recommend/recommend.go"
+      ]
+    },
+    {
+      "title": "Notice that a hint was followed",
+      "story": "A station claims a task. The task leaves the open list. If it was one of the live hint's suggestions and the hint had not run out, the hint counts as taken. Claiming any other task changes nothing.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskClaimed"
+      },
+      "policy": "Whenever a task is claimed, take it off the open list and mark the station's live hint taken if it named that task",
+      "updates": [
+        "Open tasks"
+      ],
+      "command": {
+        "name": "ApplyTaskClaimed",
+        "via": "policy"
+      },
+      "aggregate": "StationTrip",
+      "events": [
+        "InterleavingHintConsumed"
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_task_claimed.go",
+        "internal/domain/stationtrip/trip.go"
+      ]
+    },
+    {
+      "title": "Let an unused hint expire",
+      "story": "A hint lives only for the time the site's rules allow. A frequent sweep marks every live hint past its deadline as expired, even when the station does nothing.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Hint expiry sweep"
+      },
+      "policy": "Every few seconds, any live hint past its deadline is marked expired",
+      "command": {
+        "name": "ExpireHints",
+        "via": "timer"
+      },
+      "aggregate": "StationTrip",
+      "events": [
+        "InterleavingHintExpired"
+      ],
+      "evidence": [
+        "internal/application/usecases/expire_hints.go",
+        "internal/adapters/inbound/expiry/worker.go",
+        "internal/domain/stationtrip/trip.go"
+      ]
+    },
+    {
+      "title": "Preview the advice for a station",
+      "story": "Anyone can ask what the recommender would suggest for a station, from its last known position or from a location they name. It changes nothing and sends nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Open tasks",
+        "Site hint rules",
+        "Location points"
+      ],
+      "command": {
+        "name": "RecommendTasks",
+        "operationId": "recommendTasks"
+      },
+      "evidence": [
+        "internal/application/usecases/recommend.go",
+        "internal/adapters/inbound/http/recommend_handler.go"
+      ]
+    },
+    {
+      "title": "Keep the open-task list",
+      "story": "fulfillment-execution announces every task that becomes claimable. This context keeps its own copy of that pool, so it can rank tasks without asking. A task already completed never returns to it.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskAvailable"
+      },
+      "policy": "Whenever a task becomes claimable, add it to the open tasks with its type, site and locations",
+      "updates": [
+        "Open tasks"
+      ],
+      "command": {
+        "name": "ApplyTaskAvailable",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_task_available.go",
+        "internal/adapters/inbound/kafka/fulfillment_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the zone list",
+      "story": "facility-layout announces each zone of a site. Here the zone list links every location to its site, so a task's location can be placed on the right map.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "ZoneRegistered"
+      },
+      "policy": "Whenever a zone is registered, add it to the zone list with its site",
+      "updates": [
+        "Zones"
+      ],
+      "command": {
+        "name": "ApplyZone",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_layout.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the location list",
+      "story": "Each new storage location announced by facility-layout is added to the local list with its zone. Distances can only be measured between places listed here.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotRegistered"
+      },
+      "policy": "Whenever a location slot is registered, add it to the location list with its zone",
+      "updates": [
+        "Locations"
+      ],
+      "command": {
+        "name": "ApplyLocationRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_layout.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Retire a location",
+      "story": "When facility-layout takes a location out of service, it is retired in the local list for good.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotDecommissioned"
+      },
+      "policy": "Whenever a location slot is decommissioned, retire it in the location list",
+      "updates": [
+        "Locations"
+      ],
+      "command": {
+        "name": "ApplyLocationDecommissioned",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_layout.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the location points",
+      "story": "facility-layout reports where a location sits on the floor, in metres. These points are what the distance between two places is measured from. A place with no point is skipped, never guessed.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationGeometryUpdated"
+      },
+      "policy": "Whenever a location's position changes, store its new point, even if the location is not listed yet",
+      "updates": [
+        "Location points"
+      ],
+      "command": {
+        "name": "ApplyGeometryUpdated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_layout.go",
+        "internal/adapters/inbound/kafka/layout_consumer.go"
+      ]
+    },
+    {
+      "title": "Measure how much advice is followed",
+      "story": "The service reads its own hint announcements and keeps a daily tally of hints issued, taken and expired. That tally feeds the hint adoption report.",
+      "trigger": {
+        "kind": "event",
+        "event": "InterleavingHintIssued"
+      },
+      "policy": "Whenever a hint is issued, taken or expires, add it to that day's tally",
+      "updates": [
+        "Hint adoption report"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "docs/adr/0008-analytics-read-side.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A completion with no candidate leaves an older live hint in place until it expires. Retracting it would need a new event.",
+      "evidence": "docs/adr/0002-stationtrip-and-policy-aggregates.md"
+    },
+    {
+      "text": "PACK, SLAM and REBIN tasks have no location in fulfillment-execution, so they are never announced and can never be hinted.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "It is assumed that fulfillment's site ids equal facility-layout's site codes and that one map frame covers a site. Not yet checked on live data.",
+      "evidence": "docs/adr/0003-local-copies-and-consumed-contracts.md"
+    },
+    {
+      "text": "A place with no known point is skipped, never guessed. Sparse map data means short hint lists or none at all.",
+      "evidence": "docs/adr/0005-persistence-and-evaluation-semantics.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A travel model aware of aisles, cross-aisles and fixed structures is a planned refinement of today's straight-line distance.",
+      "evidence": "docs/adr/0002-stationtrip-and-policy-aggregates.md"
+    },
+    {
+      "text": "Multi-stop batching, cross-station balancing and hints on the station screen are named as later decisions.",
+      "evidence": "docs/adr/0001-task-interleaving-bounded-context.md"
+    }
+  ]
+}
