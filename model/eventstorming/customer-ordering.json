@@ -203,7 +203,7 @@
     },
     {
       "title": "Follow a revised promise",
-      "story": "When delivery-promise moves a promise to a later window, the group's delivery window, ship-by and node move with it. A revision no newer than the stored one changes nothing.",
+      "story": "When delivery-promise moves a promise to a later window, the group's delivery window, ship-by and node move with it. A revision no newer than the stored one changes nothing. A later delivery date also decides a delay notice.",
       "trigger": {
         "kind": "external",
         "system": "delivery-promise",
@@ -218,6 +218,16 @@
       "evidence": [
         "internal/application/usecases/consume_promise.go",
         "internal/domain/customerorder/commands.go"
+      ],
+      "events": [
+        "ShopperNoticeDecided"
+      ],
+      "then": [
+        {
+          "system": "Storefront",
+          "does": "tells the shopper when the notice policy names the marketplace or the seller",
+          "outside": true
+        }
       ]
     },
     {
@@ -265,7 +275,7 @@
     },
     {
       "title": "Mark a group shipped",
-      "story": "order-sourcing reports the packages. The group becomes Shipped, and deliveries that arrived early are replayed so the group can close at once.",
+      "story": "order-sourcing reports the packages. The group becomes Shipped, and deliveries that arrived early are replayed so the group can close at once. The shopper notice for shipped is decided too.",
       "trigger": {
         "kind": "external",
         "system": "order-sourcing",
@@ -283,11 +293,21 @@
       "evidence": [
         "internal/application/usecases/consume_sourcing.go",
         "internal/domain/customerorder/commands.go"
+      ],
+      "events": [
+        "ShopperNoticeDecided"
+      ],
+      "then": [
+        {
+          "system": "Storefront",
+          "does": "tells the shopper when the notice policy names the marketplace or the seller",
+          "outside": true
+        }
       ]
     },
     {
       "title": "Close a group on delivery",
-      "story": "A package is delivered. A group is Delivered once every package it announced is delivered. A package shared by merged groups closes all of them.",
+      "story": "A package is delivered. A group is Delivered once every package it announced is delivered. A package shared by merged groups closes all of them. The shopper notice for delivered is decided too.",
       "trigger": {
         "kind": "external",
         "system": "shipping-and-tracking",
@@ -305,11 +325,21 @@
       "evidence": [
         "internal/application/usecases/consume_tracking.go",
         "internal/domain/customerorder/commands.go"
+      ],
+      "events": [
+        "ShopperNoticeDecided"
+      ],
+      "then": [
+        {
+          "system": "Storefront",
+          "does": "tells the shopper when the notice policy names the marketplace or the seller",
+          "outside": true
+        }
       ]
     },
     {
       "title": "Mark a group lost or returned",
-      "story": "One lost package loses the group, and one returned package returns it. Both are final.",
+      "story": "One lost package loses the group, and one returned package returns it. Both are final. The shopper notice for lost or returned is decided too.",
       "trigger": {
         "kind": "external",
         "system": "shipping-and-tracking",
@@ -327,11 +357,21 @@
       "evidence": [
         "internal/application/usecases/consume_tracking.go",
         "internal/domain/customerorder/commands.go"
+      ],
+      "events": [
+        "ShopperNoticeDecided"
+      ],
+      "then": [
+        {
+          "system": "Storefront",
+          "does": "tells the shopper when the notice policy names the marketplace or the seller",
+          "outside": true
+        }
       ]
     },
     {
       "title": "Show the delivery window of the day",
-      "story": "The carrier narrows a package to a time window on the day. It shows on the tracking view only; the promise and the order are untouched. A delivery point flagged as failing twice shows as a notice the same way.",
+      "story": "The carrier narrows a package to a time window on the day. It shows on the tracking view only; the promise and the order are untouched. A notice for the shopper is decided too, by the same policy.",
       "trigger": {
         "kind": "external",
         "system": "shipping-and-tracking",
@@ -347,8 +387,94 @@
       },
       "evidence": [
         "internal/application/usecases/consume_eta.go",
+        "internal/application/usecases/notice.go",
+        "docs/adr/0017-notification-policy-and-shopper-notice-decided.md"
+      ],
+      "aggregate": "Policy",
+      "events": [
+        "ShopperNoticeDecided"
+      ],
+      "then": [
+        {
+          "system": "Storefront",
+          "does": "tells the shopper when the notice policy names the marketplace or the seller",
+          "outside": true
+        }
+      ]
+    },
+    {
+      "title": "Warn about a delivery point that keeps failing",
+      "story": "The carrier flags a drop-off point after repeated failures. The warning shows on the tracking view and a notice for the shopper is decided; the promise and the order are untouched.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageDeliveryPointFlagged"
+      },
+      "policy": "Whenever a delivery point is flagged, show the warning and decide who tells the shopper",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "ApplyDeliveryPointFlag",
+        "via": "policy"
+      },
+      "aggregate": "Policy",
+      "events": [
+        "ShopperNoticeDecided"
+      ],
+      "then": [
+        {
+          "system": "Storefront",
+          "does": "tells the shopper when the notice policy names the marketplace or the seller",
+          "outside": true
+        }
+      ],
+      "evidence": [
         "internal/application/usecases/consume_point_flag.go",
-        "docs/adr/0014-day-of-eta-window-on-the-tracking-view.md"
+        "internal/application/usecases/notice.go",
+        "docs/adr/0015-delivery-point-advisory-on-the-tracking-view.md"
+      ]
+    },
+    {
+      "title": "Show that a pickup package is waiting",
+      "story": "A package sent to a pickup point reaches it. The tracking view shows where it waits and until when. The order keeps moving on the shipment events and nothing else changes.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageReadyForCollection"
+      },
+      "policy": "Whenever a pickup package reaches its point, show where it waits and until when",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "ApplyPackageReadyForCollection",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_pickup.go",
+        "docs/adr/0016-checkout-to-a-pickup-point.md"
+      ]
+    },
+    {
+      "title": "Show that a pickup package was collected",
+      "story": "The shopper collects the package at the pickup point. The tracking view shows the collection and its proof code. Like the deposit, it changes no order.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageCollected"
+      },
+      "policy": "Whenever a pickup package is collected, show the collection with its proof code",
+      "updates": [
+        "Tracking view"
+      ],
+      "command": {
+        "name": "ApplyPackageCollected",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_pickup.go",
+        "docs/adr/0016-checkout-to-a-pickup-point.md"
       ]
     }
   ],

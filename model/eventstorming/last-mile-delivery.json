@@ -151,6 +151,27 @@
       ]
     },
     {
+      "title": "Declare the carbon a stop emits",
+      "story": "A station planner declares the carbon, in grams of CO2-equivalent, of one stop on a wave that is still running. Nothing reads it yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station planner"
+      },
+      "command": {
+        "name": "DeclareWaveEmission",
+        "operationId": "declareWaveEmission"
+      },
+      "aggregate": "DeliveryWave",
+      "events": [
+        "WaveEmissionDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/waves.go",
+        "internal/domain/wave/events.go",
+        "docs/adr/0016-wave-stop-emission-declaration.md"
+      ]
+    },
+    {
       "title": "Close induction on a wave",
       "story": "A station planner stops taking packages into a wave, so routes can be planned on a fixed set of packages.",
       "trigger": {
@@ -273,7 +294,7 @@
     },
     {
       "title": "Start a route",
-      "story": "An operator starts a planned route of a dispatched wave. Every package goes out for delivery, and each stop gets an arrival window of up to two hours inside the wave's delivery window.",
+      "story": "An operator starts a planned route of a dispatched wave. Every package goes out, for delivery or for pickup, and each stop gets an arrival window of up to two hours inside the wave's delivery window.",
       "trigger": {
         "kind": "actor",
         "name": "Operator"
@@ -285,6 +306,7 @@
       "aggregate": "Route",
       "events": [
         "PackageOutForDelivery",
+        "PackagePickupOut",
         "StopEtaWindowAssigned"
       ],
       "then": [
@@ -296,7 +318,8 @@
       "evidence": [
         "internal/application/usecases/routes.go",
         "internal/domain/route/route_start.go",
-        "internal/domain/route/route_eta.go"
+        "internal/domain/route/route_eta.go",
+        "docs/adr/0017-return-pickup-inductions.md"
       ]
     },
     {
