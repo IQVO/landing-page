@@ -306,6 +306,27 @@
       ]
     },
     {
+      "title": "Declare the carbon a lane emits",
+      "story": "A planner states the carbon, in grams of CO2-equivalent, of moving one package-unit across an open lane on one departure. A newer declaration replaces the previous one. Nothing reads it yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "DeclareLaneEmission",
+        "operationId": "declareLaneEmission"
+      },
+      "aggregate": "Lane",
+      "events": [
+        "LaneEmissionDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/lanes.go",
+        "internal/domain/lane/lane.go",
+        "docs/adr/0018-lane-emission-declaration.md"
+      ]
+    },
+    {
       "title": "Close a lane",
       "story": "A planner closes an open lane. A closed lane is never reopened; a new lane gets a new identity.",
       "trigger": {

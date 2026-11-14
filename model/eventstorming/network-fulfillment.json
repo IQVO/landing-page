@@ -110,7 +110,7 @@
     },
     {
       "title": "Confirm orders when the load ships",
-      "story": "outbound-shipping announces that a load shipped. Each network order on it is confirmed through the same step an operator uses, so a repeat confirms nothing twice. An order this context does not hold is skipped.",
+      "story": "outbound-shipping announces that a load shipped. Each network order on it is confirmed the way an operator would, so a repeat confirms nothing twice. An order still waiting for the network's answer is noted and confirmed later; one we do not hold is skipped.",
       "trigger": {
         "kind": "external",
         "system": "outbound-shipping",
@@ -138,6 +138,39 @@
       "evidence": [
         "internal/adapters/inbound/kafka/shipment_confirmed_consumer.go",
         "internal/application/usecases/confirm_network_order_shipment.go",
+        "docs/adr/0014-explicit-shipment-confirmation-endpoint.md"
+      ]
+    },
+    {
+      "title": "Confirm a shipment noted before the answer",
+      "story": "A load can leave while its order still waits for the network's answer, so the order notes the shipment. A timer later confirms it once the order is acknowledged, or drops it if the order was refused or is already confirmed.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Noted-shipment timer"
+      },
+      "policy": "Every pass, confirm a noted shipment once its order is acknowledged, and drop it if the order needs no confirmation",
+      "reads": [
+        "Orders with a noted shipment"
+      ],
+      "command": {
+        "name": "ConfirmPendingShipments",
+        "via": "timer"
+      },
+      "aggregate": "NetworkOrder",
+      "events": [
+        "NetworkOrderShipmentConfirmed"
+      ],
+      "then": [
+        {
+          "system": "Retail network",
+          "does": "is sent the label request and then the shipment confirmation",
+          "outside": true
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/confirm_pending_shipments.go",
+        "internal/application/usecases/defer_shipment_confirmation.go",
+        "internal/domain/networkorder/pending_shipment.go",
         "docs/adr/0014-explicit-shipment-confirmation-endpoint.md"
       ]
     },
