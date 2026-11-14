@@ -273,6 +273,10 @@
         {
           "system": "order-management",
           "does": "marks the lines of the shipped orders as shipped"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "confirms the network orders on the load as shipped"
         }
       ],
       "evidence": [
