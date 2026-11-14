@@ -82,6 +82,8 @@ export function renderBriefings({ data, cfg, updatedLabel }) {
   const engOf = (id) => ENG.repos[id];
   const archOf = (id) => ARCH.repos[id];
   const deckOf = (id) => D.decks[id] || null;
+  const ecoOf = (key) => (D.ecosystems && D.ecosystems[key]) || null;
+  const ecoUrl = (key) => { const e = ecoOf(key); return e ? `${cfg.docsUrl}/executive/${e.slug}/` : null; };
   const deg = { in: {}, out: {} };
   for (const e of D.edges) { deg.out[e.from] = (deg.out[e.from] || 0) + 1; deg.in[e.to] = (deg.in[e.to] || 0) + 1; }
   const pages = [];
@@ -258,6 +260,29 @@ ${chip(a.inbound, 10, 'in')}${chip(a.outbound.reverse(), W - 128, 'out')}
     return `${cfg.docsUrl}/executive/${id}/`;
   };
 
+
+  // ---------------------------------------------------------------- the ecosystem deck band (program pages) and cards (hub)
+  const ecoBand = (key) => {
+    const e = ecoOf(key); if (!e) return '';
+    const parts = e.businessSlides && e.architectureSlides ? `part 1 business, ${n(e.businessSlides)} slides · part 2 architecture, ${n(e.architectureSlides)} slides` : `${n(e.slides)} slides`;
+    return `<section class="section" aria-labelledby="eco-${key}">
+  <div class="wrap">
+    <article class="eco">
+      <div class="eco__main">
+        <p class="eco__k mono">Ecosystem briefing · business + architecture</p>
+        <h2 id="eco-${key}">${esc(e.bigIdea || e.tagline || e.name)}</h2>
+        ${e.ask ? `<p class="eco__ask"><span class="mono">The ask</span>${esc(e.ask)}</p>` : ''}
+      </div>
+      <div class="eco__side">
+        ${e.takeaways.length ? `<ol class="eco__take">${e.takeaways.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>` : ''}
+        <p><a class="btn btn--mint" href="${ecoUrl(key)}" rel="noopener">Open the ${esc(e.name)} deck ↗</a></p>
+        <p class="eco__meta mono">${esc(parts)} · reveal.js, press → to walk the story</p>
+      </div>
+    </article>
+  </div>
+</section>`;
+  };
+
   // ---------------------------------------------------------------- counted chips for one context
   const chips = (id) => {
     const e = engOf(id); const a = archOf(id);
@@ -334,6 +359,8 @@ ${chip(a.inbound, 10, 'in')}${chip(a.outbound.reverse(), W - 128, 'out')}
   </div>
 </section>
 
+${ecoBand(key)}
+
 <section class="section section--dark" aria-labelledby="f-${key}">
   <div class="wrap">
     <header class="sec-head">
@@ -386,6 +413,12 @@ ${P.bridgeNote ? `<section class="section section--white"><div class="wrap"><p c
         <p class="mono pcard__n">${n(members.length)} contexts · ${n(briefed.length)} deck${briefed.length === 1 ? '' : 's'} · ${n(commits)} commits</p>
       </a></li>`;
     }).join('');
+    const ecoCards = PROG_ORDER.filter((k) => ecoOf(k)).map((k) => { const e = ecoOf(k);
+      return `<li class="ecocard"><p class="kicker mono">${esc(D.programs[k].label)} ecosystem</p>
+        <h3>${esc(e.hook || e.name)}</h3>
+        <p class="ecocard__lede">${esc(e.bigIdea || e.tagline || '')}</p>
+        <p class="mono ecocard__n">${n(e.slides)} slides · business + architecture</p>
+        <p class="ecocard__cta"><a class="btn btn--mint btn--sm" href="${ecoUrl(k)}" rel="noopener">Open the deck ↗</a> <a class="mono" href="/briefings/${k}/">program page →</a></p></li>`; }).join('');
     const platCards = platform.map((d) => `<li class="platcard"><b>${esc(d.repo)}</b><span class="muted">${esc(clip(d.hook || d.tagline || '', 90))}</span>${deckUrl(d.repo) ? `<a class="mono" href="${deckUrl(d.repo)}" rel="noopener">deck ↗</a>` : ''}</li>`).join('');
     const body = `
 <section class="section section--white" aria-labelledby="hub-title">
@@ -403,6 +436,26 @@ ${P.bridgeNote ? `<section class="section section--white"><div class="wrap"><p c
       <div><dt>event routes</dt><dd>${n(F.events)}</dd></div>
       <div><dt>ADRs across programs</dt><dd>${n(sum(Object.values(ENG.repos).map((e) => e.harnessCounts?.adrs || 0)))}</dd></div>
     </dl>
+  </div>
+</section>
+
+${ecoCards ? `<section class="section section--dark" aria-labelledby="eco-title">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">Start here · the ecosystem briefings</p>
+      <h2 id="eco-title">${n(PROG_ORDER.filter((k) => ecoOf(k)).length)} ecosystems, <em>one deck each.</em></h2>
+      <p class="sec-lede">The short version for executives and new architects: part one is the business (why it exists, who it serves, the journey, what is different, the house rules, the market), part two the architecture (context map, who listens to whom, layers, seams between ecosystems, decisions, risks, roadmap). Counted from the registry; written from the docs.</p>
+    </header>
+    <ul class="ecocards">${ecoCards}</ul>
+  </div>
+</section>` : ''}
+
+<section class="section section--white" aria-labelledby="progs-title">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">Then go deeper</p>
+      <h2 id="progs-title">The four programs, <em>context by context.</em></h2>
+    </header>
     <ul class="pcards">${cards}</ul>
   </div>
 </section>
