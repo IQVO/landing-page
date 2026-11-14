@@ -1,0 +1,160 @@
+{
+  "context": "labor-performance",
+  "oneLine": "Scores every finished warehouse task against the engineered time allowed for it, and reports how each associate and task type is performing.",
+  "pivotal": [
+    "LaborStandardDefined",
+    "TaskPerformanceRecorded",
+    "LaborStandardRevised"
+  ],
+  "rows": [
+    {
+      "title": "Set the time allowed for a task type",
+      "story": "An industrial engineer sets how many seconds a task type (pick, pack, slam) should take. A task type with no open standard gets its first one.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Industrial engineer"
+      },
+      "reads": [
+        "Current standard"
+      ],
+      "command": {
+        "name": "DefineStandard",
+        "operationId": "defineStandard"
+      },
+      "aggregate": "LaborStandard",
+      "events": [
+        "LaborStandardDefined"
+      ],
+      "evidence": [
+        "internal/application/usecases/define_standard.go",
+        "internal/domain/standard/standard.go",
+        "apis/openapi.yaml"
+      ]
+    },
+    {
+      "title": "Set a time for a handling unit, with a team lift",
+      "story": "The engineer can set a separate time for handling each, case or pallet units. A case standard may also say that a heavy case is a team lift with its own time.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Industrial engineer"
+      },
+      "command": {
+        "name": "DefineStandard",
+        "operationId": "defineStandard"
+      },
+      "aggregate": "LaborStandard",
+      "events": [
+        "LaborStandardDefined"
+      ],
+      "evidence": [
+        "internal/application/usecases/define_standard.go",
+        "internal/domain/standard/standard.go",
+        "docs/docs/adr/0035-handling-unit-standards-and-team-lift.md"
+      ]
+    },
+    {
+      "title": "Tighten or loosen a standard",
+      "story": "When a standard is already open, the new one closes it at the same instant. History is never overwritten, so old tasks keep the yardstick they were scored with.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Industrial engineer"
+      },
+      "policy": "Whenever a standard is already open for the task type and unit, close it as the new one starts",
+      "reads": [
+        "Current standard"
+      ],
+      "command": {
+        "name": "DefineStandard",
+        "operationId": "defineStandard"
+      },
+      "aggregate": "LaborStandard",
+      "events": [
+        "LaborStandardRevised"
+      ],
+      "evidence": [
+        "internal/application/usecases/define_standard.go",
+        "internal/domain/standard/standard.go",
+        "docs/docs/adr/0004-standard-frozen-at-completion-time-not-recomputed.md"
+      ]
+    },
+    {
+      "title": "Score a finished task",
+      "story": "When fulfillment-execution reports a task as completed, it is scored against the standard that was in force at that moment, and the associate's idle time since the previous task is worked out.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCompleted"
+      },
+      "policy": "Whenever a task completes, record its performance exactly once",
+      "reads": [
+        "Standard in force at completion"
+      ],
+      "command": {
+        "name": "RecordTaskPerformance",
+        "via": "policy"
+      },
+      "aggregate": "TaskPerformance",
+      "events": [
+        "TaskPerformanceRecorded"
+      ],
+      "then": [
+        {
+          "system": "workforce-management",
+          "does": "keeps a running average task time and idle share per task type, for planning",
+          "outside": false
+        }
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/consumer.go",
+        "internal/application/usecases/record_task_performance.go",
+        "internal/domain/performance/performance.go",
+        "internal/domain/idleness/idleness.go"
+      ]
+    },
+    {
+      "title": "Keep the performance report up to date",
+      "story": "Each score and each standard change is counted into an hourly report per task type, which supervisors read together with a freshness check. The report has no command of its own.",
+      "trigger": {
+        "kind": "event",
+        "event": "TaskPerformanceRecorded"
+      },
+      "policy": "Whenever a performance or standard event is published, count it once into its task type and hour",
+      "updates": [
+        "Labor performance report"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "internal/adapters/inbound/http/reports_handler.go",
+        "docs/docs/adr/0007-analytical-data-product.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "The default idle-gap cap of one hour is a judgment call, not a measured shift length. Operators with other shifts must override it.",
+      "evidence": "docs/docs/adr/0014-labor-utilization-idleness.md"
+    },
+    {
+      "text": "fulfillment-execution does not yet send the handling unit or case weight, so unit standards and team lifts never apply to live tasks.",
+      "evidence": "docs/docs/adr/0035-handling-unit-standards-and-team-lift.md"
+    },
+    {
+      "text": "Task types this context does not model (for example REBIN) arrive unclassified: they are counted but never scored.",
+      "evidence": "docs/docs/adr/0007-analytical-data-product.md"
+    },
+    {
+      "text": "No access control inside the service: the standards and scorecard routes are open to anyone who can reach it.",
+      "evidence": "docs/docs/adr/0012-remove-rest-auth-layer.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "fulfillment-execution could add the handling unit and case weight to TaskCompleted, which would switch the unit standards on.",
+      "evidence": "docs/docs/adr/0035-handling-unit-standards-and-team-lift.md"
+    },
+    {
+      "text": "Standard changes could be published for other contexts to read; today only the scoring facts are shared.",
+      "evidence": "docs/docs/adr/0013-labor-performance-integration-events.md"
+    }
+  ]
+}

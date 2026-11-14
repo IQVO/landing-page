@@ -1,0 +1,461 @@
+{
+  "context": "delivery-promise",
+  "oneLine": "Quotes delivery windows per speed tier, promises one to each shipment group, holds capacity for it, re-promises when the route breaks, then judges kept or broken.",
+  "pivotal": [
+    "PromiseMade",
+    "PromiseConfirmed",
+    "PromiseAtRisk",
+    "PromiseRevised",
+    "PromiseKept",
+    "PromiseBroken"
+  ],
+  "rows": [
+    {
+      "title": "Quote delivery options for a destination",
+      "story": "A shopper sees what each shipment group can get, per speed tier, with a delivery window. A tier with no feasible route gets no offer, only the reason. The quote calls no other service.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "reads": [
+        "Node, lane, departure and wave copies",
+        "Stock per listing, net of promises",
+        "Node grades and tier eligibility",
+        "Current promise policy"
+      ],
+      "command": {
+        "name": "QuoteDeliveryOffers",
+        "operationId": "quoteDeliveryOffers"
+      },
+      "aggregate": "Offer",
+      "events": [
+        "DeliveryOfferQuoted"
+      ],
+      "evidence": [
+        "internal/application/usecases/quote.go",
+        "internal/domain/offer/offer.go",
+        "internal/domain/search/search.go"
+      ]
+    },
+    {
+      "title": "Promise a shipment group",
+      "story": "At checkout a quoted offer becomes a provisional promise and holds one order of room on the node's pickup cutoff. The route is re-checked first; a route no longer feasible is refused as full.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "reads": [
+        "Quoted offer",
+        "Current promise policy"
+      ],
+      "command": {
+        "name": "MakePromise",
+        "operationId": "makePromise"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseMade"
+      ],
+      "evidence": [
+        "internal/application/usecases/make_promise.go",
+        "internal/domain/promise/promise.go",
+        "internal/domain/book/book.go"
+      ]
+    },
+    {
+      "title": "A pickup book fills up",
+      "story": "When a hold uses the last room before a node's pickup cutoff, the book announces it is exhausted. Later quotes find no room there.",
+      "trigger": {
+        "kind": "event",
+        "event": "PromiseMade"
+      },
+      "policy": "Whenever a hold fills a pickup book, announce that the book is exhausted",
+      "command": {
+        "name": "Hold",
+        "via": "policy"
+      },
+      "aggregate": "Book",
+      "events": [
+        "PromiseBookExhausted"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "keeps it as book pressure, a penalty when scoring paths"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/make_promise.go",
+        "internal/domain/book/book.go",
+        "internal/domain/book/events.go"
+      ]
+    },
+    {
+      "title": "Confirm the promise when the order is placed",
+      "story": "Checkout confirms each promise once the order is placed. The hold becomes a confirmed reservation. Confirming twice changes nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "ConfirmPromise",
+        "operationId": "confirmPromise"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseConfirmed"
+      ],
+      "evidence": [
+        "internal/application/usecases/lifecycle.go",
+        "internal/domain/promise/promise_transitions.go"
+      ]
+    },
+    {
+      "title": "Catch a confirmation that checkout missed",
+      "story": "Normally checkout has confirmed already and nothing happens. A promise still provisional inside its hold is confirmed. If the hold has lapsed, it is only logged, never retried.",
+      "trigger": {
+        "kind": "external",
+        "system": "customer-ordering",
+        "event": "CustomerOrderPlaced"
+      },
+      "policy": "Whenever an order is placed, confirm its promises that are still provisional",
+      "command": {
+        "name": "ConfirmPromise",
+        "via": "policy"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseConfirmed"
+      ],
+      "evidence": [
+        "internal/application/usecases/projections_fulfillment.go",
+        "internal/adapters/inbound/kafka/dispatch.go",
+        "docs/docs/ddd/eventstorming.md"
+      ]
+    },
+    {
+      "title": "Cancel promises when an order is cancelled",
+      "story": "The cancelled groups' confirmed and at-risk promises are cancelled and their room goes back to the book. The same rule runs when an operator cancels one promise by hand.",
+      "trigger": {
+        "kind": "external",
+        "system": "customer-ordering",
+        "event": "CustomerOrderCancelled"
+      },
+      "policy": "Whenever an order is cancelled, cancel the promises of its cancelled groups",
+      "command": {
+        "name": "CancelPromise",
+        "via": "policy"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseCancelled"
+      ],
+      "evidence": [
+        "internal/application/usecases/lifecycle.go",
+        "internal/application/usecases/projections_fulfillment.go",
+        "internal/domain/promise/promise_transitions.go"
+      ]
+    },
+    {
+      "title": "Release a hold nobody confirmed",
+      "story": "A provisional promise that was not confirmed in time is released and its room returns to the book.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Sweeper"
+      },
+      "policy": "Every sweep, release provisional promises whose hold has lapsed",
+      "command": {
+        "name": "ReleaseExpiredHolds",
+        "via": "timer"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseReleased"
+      ],
+      "evidence": [
+        "internal/application/usecases/lifecycle_sweeps.go",
+        "cmd/api/workers.go",
+        "internal/domain/promise/promise_transitions.go"
+      ]
+    },
+    {
+      "title": "Publish a new promise policy",
+      "story": "An operator publishes the next version of the promise rules: offer and hold lifetimes, capacity share, order deadlines per tier. A published version never changes.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "PublishPromisePolicy",
+        "operationId": "publishPromisePolicy"
+      },
+      "aggregate": "Policy",
+      "events": [
+        "PromisePolicyPublished"
+      ],
+      "evidence": [
+        "internal/application/usecases/lifecycle.go",
+        "internal/domain/policy/policy.go",
+        "internal/domain/policy/events.go"
+      ]
+    },
+    {
+      "title": "Keep the node profile copy",
+      "story": "Opening hours, handling time, pickup cutoffs and the throughput cap decide when a node can ship. Node status, lanes, service areas and regions are kept the same way, so quoting never calls out.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeOperationalProfileDeclared"
+      },
+      "policy": "Whenever a node declares a profile revision, keep it if it is newer than the one held",
+      "updates": [
+        "Node profiles"
+      ],
+      "command": {
+        "name": "OnNodeProfileDeclared",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projections.go",
+        "internal/adapters/inbound/kafka/dispatch.go"
+      ]
+    },
+    {
+      "title": "Keep the stock copy",
+      "story": "Quotes sell each owner's declared quantity minus units already promised that the figure may not include yet. Hidden listings and discontinued items ship nothing.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingAvailabilityChanged"
+      },
+      "policy": "Whenever a listing's quantity changes, keep it unless it is older than the one held",
+      "updates": [
+        "Stock per listing"
+      ],
+      "command": {
+        "name": "OnListingAvailabilityChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projections.go",
+        "internal/application/usecases/availability.go",
+        "docs/adr/0017-owner-aware-availability-and-promise-netting.md"
+      ]
+    },
+    {
+      "title": "Keep the timetable copy",
+      "story": "A promise needs a pickup and legs with room. Departures are kept with their remaining room; delivery waves from last-mile-delivery are kept the same way.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "DepartureScheduled"
+      },
+      "policy": "Whenever a departure is scheduled, keep it with its remaining room",
+      "updates": [
+        "Departures and their room"
+      ],
+      "command": {
+        "name": "OnDepartureScheduled",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projections_transport.go",
+        "internal/adapters/inbound/kafka/dispatch.go"
+      ]
+    },
+    {
+      "title": "Learn how long lanes really take",
+      "story": "A lane that runs late is quoted from what it really takes. The arrival also tells the late-risk check that the leg is done.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "LoadArrived"
+      },
+      "policy": "Whenever a load arrives, pair it with its departure to measure the transit time",
+      "updates": [
+        "Measured transit times",
+        "Departure arrivals"
+      ],
+      "command": {
+        "name": "OnLoadArrived",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projections_transport.go",
+        "docs/adr/0014-measured-transit-basis.md"
+      ]
+    },
+    {
+      "title": "Flag promises on a cancelled departure",
+      "story": "Every confirmed promise whose route uses the cancelled departure is flagged at risk. Cancelled waves, failed or moved bookings, package exceptions, deferred induction and unsourceable groups flag the same way.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "DepartureCancelled"
+      },
+      "policy": "Whenever a departure is cancelled, flag the confirmed promises that ride on it",
+      "updates": [
+        "Departures and their room"
+      ],
+      "command": {
+        "name": "FlagAtRisk",
+        "via": "policy"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseAtRisk"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "records the reason in the order's tracking view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/projections_transport.go",
+        "internal/application/usecases/risk.go",
+        "internal/domain/promise/promise_transitions.go"
+      ]
+    },
+    {
+      "title": "Spot routes that are running late",
+      "story": "A sweep checks confirmed promises: if a departure on the route is past its expected arrival, the promise is flagged at risk before the customer is let down. The flag is never cleared if the load arrives later.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Sweeper"
+      },
+      "policy": "Every sweep, flag confirmed promises whose route has a departure running late",
+      "reads": [
+        "Departure arrivals",
+        "Measured transit times"
+      ],
+      "command": {
+        "name": "FlagPredictedLate",
+        "via": "timer"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseAtRisk"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "records the reason in the order's tracking view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/late_risk.go",
+        "docs/adr/0021-a-sweep-flags-promises-whose-locked-path-is-running-late.md"
+      ]
+    },
+    {
+      "title": "Re-promise a later date, or give up",
+      "story": "The promise searches again for the same group, at its tier or slower, and moves later only. When nothing works it says so once, and the sweep keeps retrying.",
+      "trigger": {
+        "kind": "event",
+        "event": "PromiseAtRisk"
+      },
+      "policy": "Whenever a promise is at risk, search again and move it later if any route works",
+      "command": {
+        "name": "ReviseAtRisk",
+        "via": "policy"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseRevised",
+        "PromiseUnkeepable"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "shows the new window, or cancels the group if unkeepable"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "applies the new window to the assignment"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/risk.go",
+        "internal/domain/promise/promise_transitions.go"
+      ]
+    },
+    {
+      "title": "Judge the promise: kept or broken",
+      "story": "Once the lock, the shipped packages and the deliveries are all known, the group is judged. On time is kept. Late, or a package lost or returned, is broken.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageDelivered"
+      },
+      "policy": "Whenever the last package is delivered, or one is lost or returned, judge the group",
+      "reads": [
+        "Locked assignment",
+        "Shipped packages"
+      ],
+      "updates": [
+        "Package outcomes"
+      ],
+      "command": {
+        "name": "Judge",
+        "via": "policy"
+      },
+      "aggregate": "Promise",
+      "events": [
+        "PromiseKept",
+        "PromiseBroken"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "records the verdict and minutes late in the tracking view"
+        },
+        {
+          "system": "node-performance",
+          "does": "records the outcome against the node's score"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/judge.go",
+        "internal/application/usecases/projections_fulfillment.go",
+        "internal/domain/promise/promise_transitions.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A stale departure or wave copy can still be quoted. It is only refused when the promise is made, as a full book.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "An order placed after its hold lapsed leaves a dead promise. The follow-up consumer only logs it and never retries.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A promise flagged as running late stays at risk even if the load arrives after all. Only the judgement closes it.",
+      "evidence": "docs/adr/0021-a-sweep-flags-promises-whose-locked-path-is-running-late.md"
+    },
+    {
+      "text": "A lock on a full book keeps the capacity charge on the wrong node and only logs a warning. A metric is a follow-up.",
+      "evidence": "docs/adr/0016-book-charge-follows-the-locked-node.md"
+    },
+    {
+      "text": "An unkeepable promise stays at risk and is retried every sweep. It ends only when customer-ordering cancels the group.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Measured-transit stretching could be widened to cover sort dwell and the last-mile wave. Deferred follow-up.",
+      "evidence": "docs/adr/0020-promise-calibration-from-the-services-own-judgement.md"
+    },
+    {
+      "text": "The reservation lag, now a constant, could become a promise policy field if operators need to tune it.",
+      "evidence": "docs/adr/0015-confirmed-units-stay-decremented.md"
+    },
+    {
+      "text": "The consolidated-tier limits could become promise policy fields.",
+      "evidence": "docs/adr/0024-an-opt-in-consolidated-tier-with-a-customer-chosen-delivery-day.md"
+    }
+  ]
+}

@@ -1,0 +1,470 @@
+{
+  "context": "order-management",
+  "oneLine": "Takes customer orders, reserves stock for every line, promises a ship date and releases the work. It also holds orders for other contexts and re-promises when plans slip.",
+  "pivotal": [
+    "OrderReceived",
+    "OrderAllocated",
+    "OrderReleased",
+    "OrderRepromised"
+  ],
+  "rows": [
+    {
+      "title": "Keep the product classification copy",
+      "story": "product-master classifies each product (handling tags, temperature, hazard class). A local copy lets intake pick a process path without a live call. This runs only when switched on.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductClassified"
+      },
+      "policy": "Whenever a product is classified, keep its newest classification",
+      "updates": [
+        "Product classification copy"
+      ],
+      "command": {
+        "name": "ApplyProductClassification",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/product_classification.go",
+        "internal/adapters/inbound/kafka/product_classification_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the process paths and cutoffs copy",
+      "story": "process-path-management announces process paths and the cutoff schedule. A local copy lets intake choose a path and promise a cutoff without a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "process-path-management",
+        "event": "CPTScheduleChanged"
+      },
+      "policy": "Whenever a path or its cutoff schedule changes, update the local copy",
+      "updates": [
+        "Process paths and cutoffs"
+      ],
+      "command": {
+        "name": "ApplyCPTScheduleChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/outbound/kafkacatalog/consumer.go",
+        "internal/adapters/outbound/kafkacptschedule/consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the path capacity copy",
+      "story": "wes-work-planning says how much work each path can still take before each cutoff. A local copy lets the promise avoid cutoffs that are already full.",
+      "trigger": {
+        "kind": "external",
+        "system": "wes-work-planning",
+        "event": "PathCapacityChanged"
+      },
+      "policy": "Whenever a path's remaining capacity changes, update the local copy",
+      "updates": [
+        "Remaining path capacity"
+      ],
+      "command": {
+        "name": "ApplyPathCapacityChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/outbound/kafkapathcapacity/consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the planned capacity copy",
+      "story": "warehouse-planning publishes capacity plans and shortages. A local copy lets an order response show which shortage windows overlap its promise. It changes no promise.",
+      "trigger": {
+        "kind": "external",
+        "system": "warehouse-planning",
+        "event": "CapacityPlanPublished"
+      },
+      "policy": "Whenever a capacity plan or shortage is published, store its window; a draft never overwrites a published one",
+      "updates": [
+        "Planned capacity windows"
+      ],
+      "command": {
+        "name": "ApplyPlannedCapacity",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/planned_capacity.go",
+        "internal/adapters/inbound/kafka/planned_capacity_consumer.go"
+      ]
+    },
+    {
+      "title": "Take an order and release it",
+      "story": "The order is saved and every line gets a stock reservation. A ship date is promised from the paths' cutoffs. Reserved lines are released as work, so the customer gets a promise at once.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Customer channel"
+      },
+      "reads": [
+        "Product classification copy",
+        "Process paths and cutoffs",
+        "Remaining path capacity"
+      ],
+      "command": {
+        "name": "ReceiveOrder",
+        "operationId": "receiveOrder"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderReceived",
+        "OrderLineAllocated",
+        "OrderAllocated",
+        "OrderLineReleased",
+        "OrderReleased"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "turns each released line into a work unit on its process path"
+        },
+        {
+          "system": "returns-processing",
+          "does": "keeps a copy of the allocated lines for later return checks"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "adds the order to its expected demand"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receive_order.go",
+        "internal/application/usecases/allocation.go",
+        "internal/application/usecases/allocation_events.go",
+        "internal/domain/order/order.go"
+      ]
+    },
+    {
+      "title": "Take an order that cannot be fully reserved",
+      "story": "A line with too little stock is backordered and the pass goes on. A ship-complete order releases nothing until every line is reserved. If inventory-storage fails part-way, what was reserved is kept and the failure is reported.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Customer channel"
+      },
+      "reads": [
+        "Product classification copy",
+        "Process paths and cutoffs",
+        "Remaining path capacity"
+      ],
+      "command": {
+        "name": "ReceiveOrder",
+        "operationId": "receiveOrder"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderReceived",
+        "OrderLineAllocated",
+        "OrderLineBackordered",
+        "OrderPartiallyAllocated",
+        "OrderAllocationPartiallyFailed"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "creates work only for the lines that were released"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receive_order.go",
+        "internal/application/usecases/allocation.go",
+        "docs/docs/adr/0003-ship-complete-default-and-fail-closed-allocation.md"
+      ]
+    },
+    {
+      "title": "Retry a stuck allocation",
+      "story": "An operator retries the backordered lines of an order. Lines that can now be reserved are reserved and released. Unlike intake, a hard failure here is returned to the operator.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RetryAllocation",
+        "operationId": "retryAllocation"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderLineAllocated",
+        "OrderLineBackordered",
+        "OrderAllocated",
+        "OrderPartiallyAllocated",
+        "OrderLineReleased",
+        "OrderReleased",
+        "OrderAllocationPartiallyFailed"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "turns each newly released line into a work unit"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/retry_allocation.go",
+        "internal/application/usecases/allocation.go"
+      ]
+    },
+    {
+      "title": "Hold an order for another context",
+      "story": "A calling context asks for stock held, not released, with a ship-by time and a fulfillment site. The order must be ship-complete. It gets a promise date, or none if the deadline cannot be met.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network order caller"
+      },
+      "reads": [
+        "Process paths and cutoffs",
+        "Remaining path capacity"
+      ],
+      "command": {
+        "name": "ReceiveOrder",
+        "operationId": "receiveOrder"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderReceived",
+        "OrderLineAllocated",
+        "OrderAllocated",
+        "SiteSkuDemandChanged"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "keeps the line's demand at its site in a local copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receive_order.go",
+        "internal/application/usecases/demand_projection.go",
+        "docs/docs/adr/0020-network-originated-demand-hold-and-deadline-feasibility.md",
+        "docs/docs/adr/0044-caller-assigned-fulfillment-site-on-the-order.md"
+      ]
+    },
+    {
+      "title": "Release a held order",
+      "story": "The caller decides to go ahead. Reservations are checked again, because they can lapse. The reserved lines are released as work, and a ship-complete order releases nothing if a line was lost.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network order caller"
+      },
+      "reads": [
+        "Order view with promise date"
+      ],
+      "command": {
+        "name": "ReleaseHeldOrder",
+        "operationId": "releaseHeldOrder"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderLineBackordered",
+        "OrderAllocated",
+        "OrderPartiallyAllocated",
+        "OrderLineReleased",
+        "OrderReleased"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "turns each released line into a work unit on its process path"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/release_held_order.go",
+        "internal/application/usecases/allocation.go",
+        "docs/docs/adr/0020-network-originated-demand-hold-and-deadline-feasibility.md"
+      ]
+    },
+    {
+      "title": "Cancel an order",
+      "story": "Reservations are given back and every line is cancelled. It is refused once any line has been released, and nothing is changed in that case.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Customer channel"
+      },
+      "command": {
+        "name": "CancelOrder",
+        "operationId": "cancelOrder"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderCancelled",
+        "SiteSkuDemandChanged"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "drops the cancelled lines from its demand copy, for orders with a site"
+        },
+        {
+          "system": "slotting-optimization",
+          "does": "drops the cancelled lines from its demand copy, for orders with a site"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/cancel_order.go",
+        "internal/domain/order/order.go",
+        "docs/docs/adr/0004-cancellation-boundary-at-release.md"
+      ]
+    },
+    {
+      "title": "Re-promise when a task misses its cutoff",
+      "story": "fulfillment-execution reports a task past its cutoff, or a package manifested. The promise of that line's shipment group is worked out again. A new event is raised only if the promise moved.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCPTMissed"
+      },
+      "policy": "Whenever a task misses its cutoff, work out the promise of its shipment group again",
+      "reads": [
+        "Process paths and cutoffs",
+        "Remaining path capacity"
+      ],
+      "command": {
+        "name": "RepromiseOrder",
+        "via": "policy"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderRepromised",
+        "SiteSkuDemandChanged"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "closes the open exceptions it matches to this order"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/repromise_order.go",
+        "internal/adapters/inbound/kafka/repromise_consumer.go",
+        "docs/docs/adr/0018-repromise-order-consumer-and-order-repromised.md"
+      ]
+    },
+    {
+      "title": "Re-promise when a package misses its load",
+      "story": "outbound-shipping reports a package that missed its load. Every shipment group of that order is promised again. Each group whose promise moved raises its own event. This runs only when switched on.",
+      "trigger": {
+        "kind": "external",
+        "system": "outbound-shipping",
+        "event": "PackageMissedLoad"
+      },
+      "policy": "Whenever a package misses its load, work out the promise of every group of its order again",
+      "reads": [
+        "Process paths and cutoffs",
+        "Remaining path capacity"
+      ],
+      "command": {
+        "name": "RepromiseOrder",
+        "via": "policy"
+      },
+      "aggregate": "Order",
+      "events": [
+        "OrderRepromised"
+      ],
+      "evidence": [
+        "internal/application/usecases/repromise_order_missed_load.go",
+        "internal/adapters/inbound/kafka/outbound_shipping_consumer.go",
+        "docs/docs/adr/0051-consume-shipment-confirmed-and-package-missedload.md"
+      ]
+    },
+    {
+      "title": "Mark lines shipped when the load leaves",
+      "story": "outbound-shipping reports a load as shipped, naming its orders. Released lines of those orders become shipped. The result stays a local fact. This runs only when switched on.",
+      "trigger": {
+        "kind": "external",
+        "system": "outbound-shipping",
+        "event": "ShipmentConfirmed"
+      },
+      "policy": "Whenever a load is confirmed shipped, mark the released lines of its orders as shipped",
+      "command": {
+        "name": "ConfirmShipment",
+        "via": "policy"
+      },
+      "aggregate": "Order",
+      "evidence": [
+        "internal/application/usecases/confirm_shipment.go",
+        "internal/adapters/inbound/kafka/outbound_shipping_consumer.go",
+        "docs/docs/adr/0051-consume-shipment-confirmed-and-package-missedload.md"
+      ]
+    },
+    {
+      "title": "Confirm a release from the work unit",
+      "story": "When work is released, a pending confirmation is opened per line. wes-work-planning's work unit for that line settles it. This runs only when switched on, and is off by default.",
+      "trigger": {
+        "kind": "external",
+        "system": "wes-work-planning",
+        "event": "WorkUnitCreated"
+      },
+      "policy": "Whenever a work unit is created for a released line, mark that line's release confirmed",
+      "updates": [
+        "Release confirmations"
+      ],
+      "command": {
+        "name": "ConfirmRelease",
+        "via": "policy"
+      },
+      "aggregate": "Confirmation",
+      "evidence": [
+        "internal/application/usecases/release_confirmation.go",
+        "internal/adapters/inbound/kafka/release_confirmation_consumer.go",
+        "docs/docs/adr/0043-release-confirmation-from-workunitcreated.md"
+      ]
+    },
+    {
+      "title": "Flag a release nobody confirmed",
+      "story": "A housekeeping sweep finds released lines still unconfirmed after the timeout and flags each once. It only reports. Nothing is cancelled, re-released or retried. This runs only when switched on.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Housekeeping sweep"
+      },
+      "policy": "Every sweep, flag each released line still unconfirmed after the timeout, once",
+      "reads": [
+        "Release confirmations"
+      ],
+      "command": {
+        "name": "FlagUnconfirmedReleases",
+        "via": "timer"
+      },
+      "aggregate": "Confirmation",
+      "events": [
+        "OrderReleaseUnconfirmed"
+      ],
+      "evidence": [
+        "internal/application/usecases/release_confirmation.go",
+        "cmd/order/housekeeping.go",
+        "docs/docs/adr/0043-release-confirmation-from-workunitcreated.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Once any line is released the order can no longer be cancelled, and work already released is not clawed back.",
+      "evidence": "docs/docs/adr/0004-cancellation-boundary-at-release.md"
+    },
+    {
+      "text": "Release is fire-and-forget. Without the opt-in confirmation, this context never learns whether wes-work-planning created the work.",
+      "evidence": "README.md"
+    },
+    {
+      "text": "A line that is never confirmed is only flagged. No automatic reaction exists, and compensation would need its own decision.",
+      "evidence": "docs/docs/adr/0043-release-confirmation-from-workunitcreated.md"
+    },
+    {
+      "text": "A held order has no timeout inside this context. It relies on its caller, or network-fulfillment's sweep, to release or cancel it.",
+      "evidence": "docs/docs/adr/0020-network-originated-demand-hold-and-deadline-feasibility.md"
+    },
+    {
+      "text": "Path capacity and cycle time are per path for the whole fleet, not per site, because upstream contracts carry no site.",
+      "evidence": ".claude/rules/deferred-and-known-gaps.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Per-site path capacity could be used once wes-work-planning and process-path-management carry a site on their contracts.",
+      "evidence": ".claude/rules/deferred-and-known-gaps.md"
+    },
+    {
+      "text": "A dedicated reply event from wes-work-planning could replace watching WorkUnitCreated to confirm a release.",
+      "evidence": "README.md"
+    }
+  ]
+}

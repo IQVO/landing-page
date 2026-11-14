@@ -1,0 +1,321 @@
+{
+  "context": "product-content",
+  "oneLine": "Holds the description, media and category of each catalogue item, publishes it when complete, and retires it when the item is discontinued.",
+  "pivotal": [
+    "ProductContentPublished",
+    "CategoryTreePublished",
+    "ProductContentRetired"
+  ],
+  "rows": [
+    {
+      "title": "Start the content of an item",
+      "story": "A content manager creates a draft for a catalogue item the network already knows. Items the network has discontinued are refused. A draft may be incomplete, and nothing is published yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "reads": [
+        "Known catalogue items",
+        "Category tree"
+      ],
+      "command": {
+        "name": "CreateProductContent",
+        "operationId": "createProductContent"
+      },
+      "aggregate": "ProductContent",
+      "evidence": [
+        "internal/application/usecases/content.go",
+        "internal/domain/content/commands.go",
+        "internal/domain/content/content.go"
+      ]
+    },
+    {
+      "title": "Revise the content",
+      "story": "The content manager replaces the description, bullets, attributes and media. A draft or live content takes a new revision. Shoppers see it only after the next publish. Retired content cannot be revised.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "reads": [
+        "Category tree"
+      ],
+      "command": {
+        "name": "ReviseContent",
+        "operationId": "reviseProductContent"
+      },
+      "aggregate": "ProductContent",
+      "evidence": [
+        "internal/application/usecases/content.go",
+        "internal/domain/content/commands.go",
+        "internal/domain/content/content.go"
+      ]
+    },
+    {
+      "title": "Discard a draft",
+      "story": "The content manager throws away a draft that was never published. It is retired as discarded, and nothing is announced because the shopper never saw it.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "command": {
+        "name": "DiscardDraft",
+        "operationId": "discardProductContentDraft"
+      },
+      "aggregate": "ProductContent",
+      "evidence": [
+        "internal/application/usecases/content.go",
+        "internal/domain/content/commands.go",
+        "internal/domain/content/content.go"
+      ]
+    },
+    {
+      "title": "Publish the content",
+      "story": "The content manager publishes. It needs a description, exactly one main media item and a category in the tree, and a known, live item. The full content leaves with its revision. Publishing a revision already live does nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "reads": [
+        "Known catalogue items",
+        "Category tree"
+      ],
+      "command": {
+        "name": "PublishContent",
+        "operationId": "publishProductContent"
+      },
+      "aggregate": "ProductContent",
+      "events": [
+        "ProductContentPublished"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "replaces the item's content in its product view, only if the revision is newer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/content.go",
+        "internal/domain/content/commands.go",
+        "internal/domain/content/content.go",
+        "internal/domain/content/events.go"
+      ]
+    },
+    {
+      "title": "Withdraw published content",
+      "story": "The content manager takes published content down by hand. Retired content is final: it can never be changed or published again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "command": {
+        "name": "RetireContent",
+        "operationId": "retireProductContent"
+      },
+      "aggregate": "ProductContent",
+      "events": [
+        "ProductContentRetired"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "ends the item's published content in its product view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/content.go",
+        "internal/domain/content/commands.go",
+        "internal/domain/content/content.go",
+        "internal/domain/content/events.go"
+      ]
+    },
+    {
+      "title": "Add a category",
+      "story": "The content manager adds a category, at the top or under a parent. The tree has at most four levels and sibling names are unique. There is no draft tree: every change publishes a new version of the whole tree.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "command": {
+        "name": "CreateCategory",
+        "operationId": "createCategory"
+      },
+      "aggregate": "Tree",
+      "events": [
+        "CategoryTreePublished"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "replaces its category view when the tree version is newer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/category.go",
+        "internal/domain/category/category.go",
+        "internal/domain/category/events.go"
+      ]
+    },
+    {
+      "title": "Move a category",
+      "story": "The content manager moves a category, with its sub-categories, under another parent. A move into its own subtree, or past four levels, is refused. The new tree version is published.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "command": {
+        "name": "MoveCategory",
+        "operationId": "moveCategory"
+      },
+      "aggregate": "Tree",
+      "events": [
+        "CategoryTreePublished"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "replaces its category view when the tree version is newer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/category.go",
+        "internal/domain/category/category.go",
+        "internal/domain/category/events.go"
+      ]
+    },
+    {
+      "title": "Rename a category",
+      "story": "The content manager renames a category. The paths of its sub-categories follow, and sibling names stay unique. The new tree version is published.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "command": {
+        "name": "RenameCategory",
+        "operationId": "renameCategory"
+      },
+      "aggregate": "Tree",
+      "events": [
+        "CategoryTreePublished"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "replaces its category view when the tree version is newer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/category.go",
+        "internal/domain/category/category.go",
+        "internal/domain/category/events.go"
+      ]
+    },
+    {
+      "title": "Send the category tree again",
+      "story": "The content manager republishes the tree without changing it, so a consumer can catch up. It goes out under the next version.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Content manager"
+      },
+      "command": {
+        "name": "PublishCategoryTree",
+        "operationId": "publishCategoryTree"
+      },
+      "aggregate": "Tree",
+      "events": [
+        "CategoryTreePublished"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "replaces its category view when the tree version is newer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/category.go",
+        "internal/domain/category/category.go",
+        "internal/domain/category/events.go"
+      ]
+    },
+    {
+      "title": "Keep the list of catalogue items",
+      "story": "offer-availability announces each new item. This context keeps a copy, so it can refuse content for an unknown item without asking. A discontinued item is never made active again by a late message.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemCreated"
+      },
+      "policy": "Whenever an item is created, record it as active unless it is already known",
+      "updates": [
+        "Known catalogue items"
+      ],
+      "command": {
+        "name": "ApplyCatalogItemCreated",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/adapters/inbound/kafka/offer_availability.go"
+      ]
+    },
+    {
+      "title": "Retire content when an item is discontinued",
+      "story": "The network discontinues an item. Published content is retired and announced. A draft is retired quietly, since nothing was ever published. A discontinued item can no longer be published.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "CatalogItemDiscontinued"
+      },
+      "policy": "Whenever an item is discontinued, mark it so and retire its published and draft content",
+      "updates": [
+        "Known catalogue items"
+      ],
+      "command": {
+        "name": "RetireOnDiscontinue",
+        "via": "policy"
+      },
+      "aggregate": "ProductContent",
+      "events": [
+        "ProductContentRetired"
+      ],
+      "then": [
+        {
+          "system": "product-discovery",
+          "does": "ends the item's published content in its product view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consume.go",
+        "internal/domain/content/commands.go",
+        "internal/adapters/inbound/kafka/offer_availability.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Media are plain links to static files. Nothing fetches or checks them, so a broken link can be published.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "Content for an item not yet announced is refused, not queued. A quick write can fail only because this copy lags.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "Published content stays up until the discontinue notice arrives. The design assumes it will eventually.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "Categories can never be deleted. The 'category in use' refusal exists for a future removal and nothing raises it.",
+      "evidence": "docs/adr/0002-product-content-assumptions.md"
+    },
+    {
+      "text": "Every category change republishes the whole tree, even a move to the same parent or a rename to the same name.",
+      "evidence": "docs/adr/0002-product-content-assumptions.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Promotions, reviews and recommendations are left for later phases.",
+      "evidence": "docs/docs/overview/introduction.md"
+    }
+  ]
+}

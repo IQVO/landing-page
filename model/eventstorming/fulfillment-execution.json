@@ -1,0 +1,479 @@
+{
+  "context": "fulfillment-execution",
+  "oneLine": "Runs work on the floor: tasks wait in a pool, stations claim and complete them, and picked orders are packed, weigh-checked and manifested.",
+  "pivotal": [
+    "TaskAvailable",
+    "TaskClaimed",
+    "TaskCompleted",
+    "PackageManifested"
+  ],
+  "rows": [
+    {
+      "title": "Create a task from released work",
+      "story": "wes-work-planning releases a unit of work. A task is created once per release, from the process path catalogue, and put in the pool for stations to claim. A task with a known location is announced to the pool.",
+      "trigger": {
+        "kind": "external",
+        "system": "wes-work-planning",
+        "event": "WorkReleased"
+      },
+      "policy": "Whenever work is released, create a task for it from the process path catalogue",
+      "reads": [
+        "Process path catalogue"
+      ],
+      "command": {
+        "name": "CreateTask",
+        "via": "policy"
+      },
+      "aggregate": "Task",
+      "events": [
+        "TaskCreated",
+        "TaskAvailable"
+      ],
+      "then": [
+        {
+          "system": "task-interleaving",
+          "does": "learns of the open task, so it can advise stations what to work next"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/consume_work_released.go",
+        "internal/application/usecases/create_task.go",
+        "internal/domain/task/task.go"
+      ]
+    },
+    {
+      "title": "Keep the product handling copy",
+      "story": "Sealing a package checks that the hazard classes of its items can travel together. The classes come from a copy of product-master's classification, so sealing never calls out. An unclassified item never blocks.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductClassified"
+      },
+      "policy": "Whenever a SKU is classified, keep the classification if its version is newer",
+      "updates": [
+        "Classification copy"
+      ],
+      "command": {
+        "name": "ApplyProductClassified",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_product_classified.go",
+        "internal/adapters/inbound/kafka/product_classified_consumer.go",
+        "docs/docs/adr/0039-product-classification-local-copy.md"
+      ],
+      "events": []
+    },
+    {
+      "title": "Keep the pack levels copy",
+      "story": "A pick scan is checked against the packs product-master declares. Each and case barcodes resolve to a SKU and a number of units. Retired levels are kept as ended.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductPackLevelDeclared"
+      },
+      "policy": "Whenever a pack level is declared or retired, update the pack view",
+      "updates": [
+        "Pack view (GTINs)"
+      ],
+      "command": {
+        "name": "ApplyPackLevel",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/apply_pack_level.go",
+        "internal/adapters/inbound/kafka/pack_level_consumer.go",
+        "docs/docs/adr/0054-case-and-each-pick-scans-and-break-case-task.md"
+      ],
+      "events": []
+    },
+    {
+      "title": "Claim the next task",
+      "story": "A station asks for work and is given the best-fitting pending task, on a lease so that only one station holds it. Advice from task-interleaving only breaks ties inside a priority band.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station operator"
+      },
+      "reads": [
+        "Queue depth",
+        "Interleaving hints"
+      ],
+      "command": {
+        "name": "ClaimNext",
+        "operationId": "claimNextTask"
+      },
+      "aggregate": "Task",
+      "events": [
+        "TaskClaimed",
+        "TaskClaimed"
+      ],
+      "then": [
+        {
+          "system": "task-interleaving",
+          "does": "marks the task as taken, so it stops advising it"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/claim_next.go",
+        "internal/domain/task/task.go",
+        "docs/docs/adr/0002-pull-based-claimnext-dispatch.md"
+      ]
+    },
+    {
+      "title": "Confirm a scan against a pick",
+      "story": "The operator scans an each or a case barcode against a pick task. The scan is checked against the pack view and the picked quantity is counted in eaches.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station operator"
+      },
+      "reads": [
+        "Pack view (GTINs)"
+      ],
+      "command": {
+        "name": "ConfirmPickScan",
+        "operationId": "confirmPickScan"
+      },
+      "aggregate": "Task",
+      "evidence": [
+        "internal/application/usecases/pick_scan.go",
+        "internal/domain/task/pick.go"
+      ],
+      "events": []
+    },
+    {
+      "title": "Form a pick walk",
+      "story": "With batching switched on, a station gets one walk of several pick tasks with the same cut-off, up to a maximum and with no hazard clashes. The first task is the one a plain claim would give.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station operator"
+      },
+      "reads": [
+        "Interleaving hints"
+      ],
+      "command": {
+        "name": "FormWorkBatch",
+        "operationId": "formWorkBatch"
+      },
+      "aggregate": "WorkBatch",
+      "events": [
+        "WorkBatchFormed",
+        "WorkBatchFormed"
+      ],
+      "evidence": [
+        "internal/application/usecases/form_work_batch.go",
+        "internal/domain/workbatch/workbatch.go",
+        "docs/docs/adr/0063-work-batches-formed-at-assignment-behind-a-mode-gate.md"
+      ]
+    },
+    {
+      "title": "Complete a task",
+      "story": "The station that holds the lease completes the task. The completion carries what downstream needs: the work unit, the order reference and, for a relocation, the SKU, bins and quantity.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station operator"
+      },
+      "command": {
+        "name": "CompleteTask",
+        "operationId": "completeTask"
+      },
+      "aggregate": "Task",
+      "events": [
+        "TaskCompleted",
+        "TaskCompleted"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "marks the unit of work as done"
+        },
+        {
+          "system": "inventory-storage",
+          "does": "books the stock move behind a confirmed pick or a relocation"
+        },
+        {
+          "system": "labor-performance",
+          "does": "records how long the task took and who did it"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "learns the capacity actually observed"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/complete_task.go",
+        "internal/domain/task/task.go",
+        "docs/docs/adr/0040-task-completed-carries-order-ref.md"
+      ]
+    },
+    {
+      "title": "Close a pick walk",
+      "story": "When the last open task of a walk is completed, the walk completes in the same step, with its member count and walking time.",
+      "trigger": {
+        "kind": "event",
+        "event": "TaskCompleted"
+      },
+      "policy": "Whenever the last open task of a walk is completed, complete the walk",
+      "command": {
+        "name": "CompleteTask",
+        "via": "policy"
+      },
+      "aggregate": "WorkBatch",
+      "events": [
+        "WorkBatchCompleted",
+        "WorkBatchCompleted"
+      ],
+      "evidence": [
+        "internal/application/usecases/complete_task.go",
+        "internal/domain/workbatch/workbatch.go"
+      ]
+    },
+    {
+      "title": "Record a transfer step",
+      "story": "Completing a task that belongs to a stock transfer also reports that transfer's pick, dispatch or arrival.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Station operator"
+      },
+      "command": {
+        "name": "CompleteTask",
+        "operationId": "completeTask"
+      },
+      "aggregate": "Task",
+      "events": [
+        "TransferPicked",
+        "TransferDispatched",
+        "TransferArrived"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "keeps the transfer facts to follow each transfer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/complete_task.go",
+        "internal/domain/shared/events.go",
+        "docs/docs/adr/0036-transfer-task-types-and-facts.md"
+      ]
+    },
+    {
+      "title": "Arrive at the rebin wall",
+      "story": "A picked line arrives at its order's consolidation slot. When the last required line is there, one PACK task is created, once.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Rebin associate"
+      },
+      "command": {
+        "name": "ArriveAtRebin",
+        "operationId": "arriveAtRebin"
+      },
+      "aggregate": "OrderConsolidation",
+      "evidence": [
+        "internal/application/usecases/arrive_at_rebin.go",
+        "internal/domain/consolidation/order_consolidation.go",
+        "docs/docs/adr/0016-rebin-and-order-consolidation.md"
+      ],
+      "events": []
+    },
+    {
+      "title": "Seal a package",
+      "story": "The packer scans the contents and seals the package. An empty carton is never sealed, and items whose hazard classes clash are refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Packer"
+      },
+      "reads": [
+        "Classification copy"
+      ],
+      "command": {
+        "name": "SealPackage",
+        "operationId": "sealPackage"
+      },
+      "aggregate": "Package",
+      "events": [
+        "PackageSealed"
+      ],
+      "evidence": [
+        "internal/application/usecases/seal_package.go",
+        "internal/domain/package/package.go"
+      ]
+    },
+    {
+      "title": "Pass the weigh check",
+      "story": "The sealed package is weighed against its expected weight. Within tolerance, a label is applied and the package is manifested for shipping.",
+      "trigger": {
+        "kind": "actor",
+        "name": "SLAM line"
+      },
+      "command": {
+        "name": "RunSlam",
+        "operationId": "runSlam"
+      },
+      "aggregate": "Package",
+      "events": [
+        "LabelApplied",
+        "PackageManifested",
+        "PackageManifested"
+      ],
+      "then": [
+        {
+          "system": "outbound-shipping",
+          "does": "takes the manifested package into its own view"
+        },
+        {
+          "system": "order-management",
+          "does": "closes the promise feedback for the order line"
+        },
+        {
+          "system": "returns-processing",
+          "does": "keeps a copy of the manifest"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/run_slam.go",
+        "internal/domain/package/package.go",
+        "docs/docs/adr/0025-cpt-missed-sweep-and-package-manifested.md"
+      ]
+    },
+    {
+      "title": "Fail the weigh check",
+      "story": "Outside tolerance, the discrepancy is reported and the package is diverted instead of labelled. Both facts reach exception-management, so someone owns the problem.",
+      "trigger": {
+        "kind": "actor",
+        "name": "SLAM line"
+      },
+      "command": {
+        "name": "RunSlam",
+        "operationId": "runSlam"
+      },
+      "aggregate": "Package",
+      "events": [
+        "WeightDiscrepancyDetected",
+        "WeightDiscrepancyDetected",
+        "PackageDiverted",
+        "PackageDiverted"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens a case for the package"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/run_slam.go",
+        "internal/domain/package/package.go",
+        "docs/docs/adr/0053-promote-package-exception-facts-to-integration-topic.md"
+      ]
+    },
+    {
+      "title": "Free tasks whose lease lapsed",
+      "story": "A scheduled job returns claimed tasks whose lease ran out to the pool, so another station can take them. If that was the last open task of a walk, the walk is abandoned.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Scheduled sweep"
+      },
+      "policy": "Every sweep, a claimed task whose lease has lapsed goes back to the pool",
+      "command": {
+        "name": "ExpireLeases",
+        "operationId": "expireLeases"
+      },
+      "aggregate": "Task",
+      "events": [
+        "LeaseExpired",
+        "TaskAvailable",
+        "WorkBatchAbandoned",
+        "WorkBatchAbandoned"
+      ],
+      "evidence": [
+        "internal/application/usecases/expire_leases.go",
+        "internal/domain/task/task.go",
+        "docs/docs/adr/0037-sweeps-scheduled-by-cronjob-default-on.md"
+      ]
+    },
+    {
+      "title": "Report missed cut-offs",
+      "story": "A scheduled job reports every open task whose cut-off has passed. It changes nothing on the task and reports the same task again on each pass.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Scheduled sweep"
+      },
+      "policy": "Every sweep, any open task past its cut-off is reported as missed",
+      "command": {
+        "name": "SweepCPTMisses",
+        "operationId": "sweepCPTMisses"
+      },
+      "aggregate": "Task",
+      "events": [
+        "TaskCPTMissed"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens a case, or counts the repeat on the open one"
+        },
+        {
+          "system": "order-management",
+          "does": "re-promises the order"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/sweep_cpt_misses.go",
+        "docs/docs/adr/0025-cpt-missed-sweep-and-package-manifested.md"
+      ]
+    },
+    {
+      "title": "Count an item picked (never raised)",
+      "story": "The model has a fact for each item picked, with an encoder for the analytics stream. No use case raises it: picking is tracked per task, from claim to completion.",
+      "trigger": {
+        "kind": "event",
+        "event": "ItemPicked"
+      },
+      "policy": "Whenever an item is picked, copy it to the analytics stream (nothing raises it yet)",
+      "updates": [
+        "Analytics stream"
+      ],
+      "evidence": [
+        "internal/domain/shared/events.go",
+        "internal/adapters/outbound/kafka/analytics_publisher.go",
+        "docs/docs/ddd/domain-events.md"
+      ],
+      "events": []
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A station can claim work without being checked in. Check-in is recorded but does not gate a claim.",
+      "evidence": "docs/docs/ddd/aggregates-and-invariants.md"
+    },
+    {
+      "text": "ItemPicked is defined and has an encoder, but no use case raises it. Picking is tracked per task, not per item.",
+      "evidence": "docs/docs/ddd/domain-events.md"
+    },
+    {
+      "text": "The sort lane is decided for each package, but no conveyor or sorter system exists to act on it.",
+      "evidence": "docs/docs/adr/0010-package-segregation-and-sort-lane.md"
+    },
+    {
+      "text": "A missed cut-off is reported again on every sweep, so consumers must count it once.",
+      "evidence": "docs/docs/adr/0025-cpt-missed-sweep-and-package-manifested.md"
+    },
+    {
+      "text": "Rebin arrival has no real event source yet, only a manual entry point. The two rebin events never leave the process.",
+      "evidence": "docs/docs/adr/0016-rebin-and-order-consolidation.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A real sorter system could take the sort lane as its own fact. That integration is not built.",
+      "evidence": "docs/docs/adr/0010-package-segregation-and-sort-lane.md"
+    },
+    {
+      "text": "A rebin location model (which bin holds a line) and cartonization are left out of the rebin design.",
+      "evidence": "docs/docs/adr/0016-rebin-and-order-consolidation.md"
+    },
+    {
+      "text": "Records of sent events are never purged. A retention sweep is named as a follow-up.",
+      "evidence": "docs/docs/adr/0020-transactional-outbox.md"
+    }
+  ]
+}

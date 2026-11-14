@@ -1,0 +1,515 @@
+{
+  "context": "order-sourcing",
+  "oneLine": "Chooses which fulfillment node ships each group of an order, releases it at the right time and tracks it from release to delivery.",
+  "pivotal": [
+    "FulfillmentQueued",
+    "FulfillmentReleasedToNode",
+    "FulfillmentLocked",
+    "FulfillmentShipped",
+    "FulfillmentDelivered"
+  ],
+  "rows": [
+    {
+      "title": "Queue a shipment group",
+      "story": "When an order is placed, each shipment group gets an assignment and the best node is picked; a same-day group is released at once. If no node can serve the group in time, it is marked unsourceable so the promise can be revised.",
+      "trigger": {
+        "kind": "external",
+        "system": "customer-ordering",
+        "event": "CustomerOrderPlaced"
+      },
+      "policy": "Whenever an order is placed, queue one assignment per shipment group and pick its best node",
+      "reads": [
+        "Network graph",
+        "Availability copy",
+        "Node scorecards"
+      ],
+      "command": {
+        "name": "QueueAssignment",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentQueued",
+        "FulfillmentUnsourceable"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "flags the promise as at risk when no node can serve the group"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "keeps the reason on the order tracking view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/queue.go",
+        "internal/domain/assignment/assignment.go",
+        "internal/adapters/inbound/kafka/handlers.go"
+      ]
+    },
+    {
+      "title": "Release a group to its best node",
+      "story": "A sweep releases every group whose release time has come. The node is re-checked against fresh copies first, and the release records why this node was chosen.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Queue sweep"
+      },
+      "policy": "Whenever a queued group's release time is due, re-check the best node and release the group to it",
+      "reads": [
+        "Network graph",
+        "Availability copy",
+        "Node scorecards"
+      ],
+      "command": {
+        "name": "ReleaseToNode",
+        "via": "timer"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentReleasedToNode",
+        "FulfillmentSourcingDecided",
+        "FulfillmentReassigned",
+        "FulfillmentUnsourceable"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "issues a purchase order to the node"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "notes the planned pickup; nothing is booked yet"
+        },
+        {
+          "system": "seller-inbound",
+          "does": "adds the released lines to its demand view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/release.go",
+        "internal/application/usecases/sweep.go",
+        "internal/domain/assignment/commands.go"
+      ]
+    },
+    {
+      "title": "Release one shopper's packages together",
+      "story": "If the shopper chose the consolidated delivery day and a merge limit is published, queued groups with the same key ride on the first group's release. The merge never moves the node.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Queue sweep"
+      },
+      "policy": "Whenever a due consolidated group has queued mates with the same key, release them as one",
+      "command": {
+        "name": "ReleaseToNode",
+        "via": "timer"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "AssignmentsConsolidated"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "receives one purchase order carrying the lines of every merged group"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/release.go",
+        "internal/domain/assignment/consolidation.go",
+        "docs/adr/0015-carrier-and-follower-consolidation-at-release.md"
+      ]
+    },
+    {
+      "title": "Move a queued group to a better node",
+      "story": "A network planner, or the sweep, asks for a fresh search for a group that is still queued. If another node is now better the group moves; if none is left it becomes unsourceable.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "reads": [
+        "Network graph",
+        "Availability copy"
+      ],
+      "command": {
+        "name": "ReoptimiseAssignment",
+        "operationId": "reoptimiseAssignment"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentReassigned",
+        "FulfillmentUnsourceable"
+      ],
+      "then": [
+        {
+          "system": "linehaul-transportation",
+          "does": "updates its view of the group's node"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/assignment/commands.go"
+      ]
+    },
+    {
+      "title": "Publish a sourcing policy",
+      "story": "A planner sets the cross-region surcharge, how far above the cheapest route the choice may drift to stay in region, and how many groups may merge. Every publish makes the next version; nothing changes until one exists.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "PublishSourcingPolicy",
+        "operationId": "putSourcingPolicy"
+      },
+      "aggregate": "Policy",
+      "events": [
+        "SourcingPolicyPublished"
+      ],
+      "evidence": [
+        "internal/application/usecases/policy.go",
+        "internal/domain/policy/policy.go",
+        "docs/adr/0014-a-versioned-sourcing-policy.md"
+      ]
+    },
+    {
+      "title": "Lock the group when the node accepts",
+      "story": "When the node accepts the purchase order, the group is locked on that node and its pickup departure. After that it can no longer be moved or cancelled.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "PurchaseOrderAccepted"
+      },
+      "policy": "Whenever the node accepts the purchase order of the pending release, lock the group on that node",
+      "command": {
+        "name": "LockAssignment",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentLocked"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "moves the capacity hold to the locked node and pickup, then re-judges the promise"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "marks the group as in fulfilment"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "books one package on the pickup departure, or moves it to the next one"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/assignment/commands_lifecycle.go",
+        "internal/adapters/inbound/kafka/handlers_partner.go"
+      ]
+    },
+    {
+      "title": "Try another node after a refusal",
+      "story": "If the node rejects the purchase order or lets it expire, that node is excluded and the group is searched again. A merged release breaks up and each group is searched on its own.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "PurchaseOrderRejected"
+      },
+      "policy": "Whenever a node rejects or lets a purchase order expire, skip that node and search again",
+      "command": {
+        "name": "HandleNodeRefusal",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentReassigned",
+        "FulfillmentUnsourceable",
+        "AssignmentsDeconsolidated"
+      ],
+      "then": [
+        {
+          "system": "linehaul-transportation",
+          "does": "updates its view of the group's node"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "flags the promise as at risk when no node is left"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/assignment/commands.go",
+        "internal/adapters/inbound/kafka/handlers_partner.go"
+      ]
+    },
+    {
+      "title": "Record the shipment",
+      "story": "When the node confirms that the purchase order shipped, the group is marked shipped with its tracking numbers, and a merged release ships all its groups.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "VendorShipmentConfirmed"
+      },
+      "policy": "Whenever the node confirms a shipment, mark the group shipped with its tracking numbers",
+      "command": {
+        "name": "MarkShipped",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentShipped"
+      ],
+      "then": [
+        {
+          "system": "customer-ordering",
+          "does": "marks the group shipped and stores the tracking numbers"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "records the packages of the group to judge the promise"
+        },
+        {
+          "system": "customer-payments",
+          "does": "captures the payment of the group"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/assignment/commands_lifecycle.go"
+      ]
+    },
+    {
+      "title": "Record the delivery",
+      "story": "Each delivered package is remembered. The group counts as delivered only when its last package arrives.",
+      "trigger": {
+        "kind": "external",
+        "system": "shipping-and-tracking",
+        "event": "PackageDelivered"
+      },
+      "policy": "Whenever a package is delivered, record it; the last package delivers the group",
+      "command": {
+        "name": "MarkDelivered",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentDelivered"
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/assignment/commands_lifecycle.go",
+        "internal/adapters/inbound/kafka/handlers_logistics.go"
+      ]
+    },
+    {
+      "title": "Cancel a group before it locks",
+      "story": "A cancelled order cancels its groups while they are queued, released or unsourceable. A locked group, or a member of a merged release, refuses the cancellation and the order keeps it.",
+      "trigger": {
+        "kind": "external",
+        "system": "customer-ordering",
+        "event": "CustomerOrderCancelled"
+      },
+      "policy": "Whenever an order is cancelled, cancel its groups that are not locked and refuse the others",
+      "command": {
+        "name": "CancelAssignment",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentCancelled",
+        "FulfillmentCancelRefused"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "cancels the purchase order of a released group"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "updates its view of the group"
+        },
+        {
+          "system": "seller-inbound",
+          "does": "removes the group's lines from its demand view"
+        },
+        {
+          "system": "customer-payments",
+          "does": "lets go of the payment hold for the group"
+        },
+        {
+          "system": "customer-ordering",
+          "does": "confirms the cancellation, or keeps the group when refused"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/cancel_revise.go",
+        "internal/domain/assignment/commands_lifecycle.go"
+      ]
+    },
+    {
+      "title": "Re-check a group after a promise change",
+      "story": "When delivery-promise revises a promise, the group gets the new deadline and its exclusions are reset. A merged release that no longer fits the window is withdrawn and its groups are searched again.",
+      "trigger": {
+        "kind": "external",
+        "system": "delivery-promise",
+        "event": "PromiseRevised"
+      },
+      "policy": "Whenever a promise is revised, apply the new deadline and search again if the group is still queued",
+      "command": {
+        "name": "ApplyRevisedPromise",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "events": [
+        "FulfillmentConstraintRevised",
+        "FulfillmentReleaseWithdrawn",
+        "AssignmentsDeconsolidated"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "cancels the purchase order of the withdrawn release"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/cancel_revise.go",
+        "internal/domain/assignment/commands_revision.go",
+        "docs/adr/0015-carrier-and-follower-consolidation-at-release.md"
+      ]
+    },
+    {
+      "title": "Follow a moved pickup",
+      "story": "If linehaul moves a booking to another departure, the locked group points at the new pickup. The node never changes. A failed booking changes nothing here.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "BookingMoved"
+      },
+      "policy": "Whenever a booking moves to another departure, point the locked group at the new pickup",
+      "command": {
+        "name": "RecordPickupMoved",
+        "via": "policy"
+      },
+      "aggregate": "Assignment",
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/assignment/commands_revision.go"
+      ]
+    },
+    {
+      "title": "Keep the network map",
+      "story": "Nodes, their profiles and status, lanes, regions and service areas come from node-topology. Order-sourcing keeps a copy so a search never needs a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "LaneOpened"
+      },
+      "policy": "Whenever a node, lane, region or service area changes, update the local network copies",
+      "updates": [
+        "Network graph",
+        "Node profiles"
+      ],
+      "command": {
+        "name": "Projector.LaneOpened",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projector.go",
+        "internal/adapters/inbound/kafka/handlers_logistics.go"
+      ]
+    },
+    {
+      "title": "Keep the departures copy",
+      "story": "Linehaul announces departures, capacity changes and cancellations. A route can only start on a departure that this copy still shows as usable.",
+      "trigger": {
+        "kind": "external",
+        "system": "linehaul-transportation",
+        "event": "DepartureScheduled"
+      },
+      "policy": "Whenever a departure is scheduled, resized or cancelled, update the local departures copy",
+      "updates": [
+        "Network graph"
+      ],
+      "command": {
+        "name": "Projector.DepartureScheduled",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projector.go",
+        "internal/adapters/inbound/kafka/handlers_logistics.go"
+      ]
+    },
+    {
+      "title": "Keep the delivery waves copy",
+      "story": "Last-mile delivery announces its waves, capacity changes, cancellations and per-stop costs. A route ends on a wave of the destination's station.",
+      "trigger": {
+        "kind": "external",
+        "system": "last-mile-delivery",
+        "event": "DeliveryWaveScheduled"
+      },
+      "policy": "Whenever a wave is scheduled, resized, cancelled or priced, update the local waves copy",
+      "updates": [
+        "Network graph"
+      ],
+      "command": {
+        "name": "Projector.WaveScheduled",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projector.go",
+        "internal/adapters/inbound/kafka/handlers_logistics.go"
+      ]
+    },
+    {
+      "title": "Keep the availability copy",
+      "story": "Offer-availability reports what each node can ship. A node only qualifies when every line of the group is listed, not suppressed and in stock.",
+      "trigger": {
+        "kind": "external",
+        "system": "offer-availability",
+        "event": "ListingAvailabilityChanged"
+      },
+      "policy": "Whenever a listing's stock changes, update the local availability copy",
+      "updates": [
+        "Availability copy"
+      ],
+      "command": {
+        "name": "Projector.ListingAvailabilityChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/projector.go",
+        "internal/adapters/inbound/kafka/handlers.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "After a promise revision withdraws a merged release, the vendor may still accept the old purchase order: a duplicate pick and ship of the other groups' goods.",
+      "evidence": "docs/adr/0015-carrier-and-follower-consolidation-at-release.md"
+    },
+    {
+      "text": "If the pickup departure of a locked group is cancelled, no transition handles it: the departures copy changes and nothing else.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "An acceptance that arrives after the group was cancelled is only logged, so the vendor may still ship.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "A group released at the latest pickup has no slack: after a refusal there may be no later wave, so it becomes unsourceable.",
+      "evidence": "docs/adr/0016-consolidated-delivery-day-search-and-latest-pickup-hold.md"
+    },
+    {
+      "text": "FulfillmentConstraintRevised has no consumer declared in any spec yet.",
+      "evidence": "apis/asyncapi.yaml"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A split surcharge and a single-node preference are not built. Revisit when sourcing plans across the groups of one order.",
+      "evidence": "docs/adr/0014-a-versioned-sourcing-policy.md"
+    }
+  ]
+}

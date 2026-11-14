@@ -1,0 +1,379 @@
+{
+  "context": "inbound-receiving",
+  "oneLine": "Receives deliveries at the dock: from an announced ASN to a closed, counted receipt.",
+  "pivotal": [
+    "ASNRegistered",
+    "ReceiptOpened",
+    "ReceiptLineReceived",
+    "ReceiptClosed",
+    "ReceiptStowCompleted"
+  ],
+  "rows": [
+    {
+      "title": "Announce a delivery",
+      "story": "A supplier announces what is coming. The ASN is only accepted if every SKU on it is a product the warehouse knows.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Supplier"
+      },
+      "reads": [
+        "Known SKUs"
+      ],
+      "command": {
+        "name": "RegisterAsn",
+        "operationId": "registerAsn"
+      },
+      "aggregate": "Asn",
+      "events": [
+        "ASNRegistered"
+      ],
+      "then": [
+        {
+          "system": "dock-scheduling",
+          "does": "feeds its ASN view so a door can be planned"
+        },
+        {
+          "system": "yard-management",
+          "does": "feeds its inbound views"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/asn.go",
+        "internal/domain/asn/asn.go"
+      ]
+    },
+    {
+      "title": "Cancel an announcement",
+      "story": "The supplier withdraws the announcement. It only works while nothing has been received yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Supplier"
+      },
+      "command": {
+        "name": "CancelAsn",
+        "operationId": "cancelAsn"
+      },
+      "aggregate": "Asn",
+      "events": [
+        "ASNCancelled"
+      ],
+      "then": [
+        {
+          "system": "dock-scheduling",
+          "does": "cancels a booking when all its ASNs are cancelled"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/asn.go",
+        "internal/domain/asn/asn.go"
+      ]
+    },
+    {
+      "title": "Keep the appointments copy",
+      "story": "The dock booking lives in dock-scheduling. Here a read-only copy follows its bookings, reschedules and door changes, so receiving never has to ask.",
+      "trigger": {
+        "kind": "external",
+        "system": "dock-scheduling",
+        "event": "DockAppointmentBooked"
+      },
+      "policy": "Whenever an inbound appointment is booked, cancelled or moved, update the local copy",
+      "updates": [
+        "Appointments copy"
+      ],
+      "command": {
+        "name": "ApplyDockAppointmentBooked",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers_appointment.go",
+        "internal/adapters/inbound/kafka/dock_appointment_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the product list",
+      "story": "Every product that product-master registers becomes a known SKU, so an ASN can be checked without a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductRegistered"
+      },
+      "policy": "Whenever a product is registered, add its SKU to the known SKUs",
+      "updates": [
+        "Known SKUs"
+      ],
+      "command": {
+        "name": "ApplyProductRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/product_consumer.go"
+      ]
+    },
+    {
+      "title": "Keep the dock-door list",
+      "story": "Only inbound dock doors matter here. facility-layout announces every location slot; receiving keeps the doors it can use.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "LocationSlotRegistered"
+      },
+      "policy": "Whenever a slot is registered, keep it only if it is an inbound dock door",
+      "updates": [
+        "Dock doors"
+      ],
+      "command": {
+        "name": "ApplyLocationSlotRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/dock_door_consumer.go"
+      ]
+    },
+    {
+      "title": "Open a receipt at the door",
+      "story": "The truck is at the door. Dock staff open a receipt for the ASN, with or without an appointment, and the ASN moves to Receiving.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock staff"
+      },
+      "reads": [
+        "Appointments copy",
+        "Dock doors"
+      ],
+      "command": {
+        "name": "OpenReceipt",
+        "operationId": "openReceipt"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReceiptOpened",
+        "AsnLateForArrival"
+      ],
+      "then": [
+        {
+          "system": "yard-management",
+          "does": "feeds its inbound views"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receipt.go",
+        "internal/application/usecases/asn_late.go",
+        "internal/domain/receipt/receipt.go"
+      ]
+    },
+    {
+      "title": "Count a line",
+      "story": "Dock staff count what is on the pallet and record it as Good or Damaged. Only Good units become stock.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock staff"
+      },
+      "command": {
+        "name": "ReceiveLine",
+        "operationId": "receiveLine"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReceiptLineReceived"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "books the Good units as staged stock"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receipt.go",
+        "internal/domain/receipt/receipt.go"
+      ]
+    },
+    {
+      "title": "Receive by scan",
+      "story": "Dock staff scan a carton label. An accepted carton books its contents; a refused scan is not an error, it becomes a recorded finding.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock staff"
+      },
+      "reads": [
+        "Known SKUs",
+        "Packaging view"
+      ],
+      "command": {
+        "name": "ReceiveScan",
+        "operationId": "receiveScan"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReceiptCartonReceived",
+        "CartonDiscrepancyRaised"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "creates or links the carton's container"
+        },
+        {
+          "system": "network-fulfillment",
+          "does": "keeps a copy of the carton and the finding"
+        },
+        {
+          "system": "exception-management",
+          "does": "handles the discrepancy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/scan.go",
+        "internal/application/usecases/scan_receive.go",
+        "internal/domain/receipt/carton_accept.go"
+      ]
+    },
+    {
+      "title": "Close the receipt",
+      "story": "Dock staff close the receipt. It reports every difference against the ASN, flags cartons that never showed up and sends the receiving advice.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Dock staff"
+      },
+      "command": {
+        "name": "CloseReceipt",
+        "operationId": "closeReceipt"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReceiptClosed",
+        "ReceivingAdviceIssued",
+        "CartonDiscrepancyRaised"
+      ],
+      "then": [
+        {
+          "system": "network-fulfillment",
+          "does": "keeps a copy of the closed receipt"
+        },
+        {
+          "system": "yard-management",
+          "does": "feeds its inbound views"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/receipt.go",
+        "internal/application/usecases/advice.go",
+        "internal/domain/receipt/advice.go"
+      ]
+    },
+    {
+      "title": "Complete the ASN",
+      "story": "When the receipt closes, the ASN closes with it, in the same transaction. Nobody has to remember to do it.",
+      "trigger": {
+        "kind": "event",
+        "event": "ReceiptClosed"
+      },
+      "policy": "Whenever a receipt closes, close its ASN in the same transaction",
+      "command": {
+        "name": "CompleteAsn",
+        "via": "policy"
+      },
+      "aggregate": "Asn",
+      "evidence": [
+        "internal/application/usecases/receipt.go",
+        "internal/domain/asn/asn.go"
+      ]
+    },
+    {
+      "title": "Measure dock-to-stock: the gate",
+      "story": "The yard reports when the truck reached the gate. That is the start of the dock-to-stock clock.",
+      "trigger": {
+        "kind": "external",
+        "system": "yard-management",
+        "event": "VisitCheckedIn"
+      },
+      "policy": "Whenever a visit checks in, store the arrival and check whether the evidence is complete",
+      "updates": [
+        "Gate arrivals"
+      ],
+      "command": {
+        "name": "EvaluateDockToStock",
+        "via": "policy"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReceiptStowCompleted"
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers_stow.go",
+        "internal/domain/receipt/stow.go"
+      ]
+    },
+    {
+      "title": "Measure dock-to-stock: the shelf",
+      "story": "inventory-storage reports when a carton was stowed. When the last Good carton is on the shelf, the dock-to-stock time is known.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "ContainerStowed"
+      },
+      "policy": "Whenever a container is stowed, store the stow and check whether the evidence is complete",
+      "updates": [
+        "Carton stows"
+      ],
+      "command": {
+        "name": "EvaluateDockToStock",
+        "via": "policy"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReceiptStowCompleted"
+      ],
+      "evidence": [
+        "internal/application/usecases/consumers_stow.go",
+        "internal/domain/receipt/stow.go"
+      ]
+    },
+    {
+      "title": "Chase a late advice",
+      "story": "A periodic sweep looks for open receipts whose receiving advice is past its deadline and raises an overdue notice.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Housekeeping sweep"
+      },
+      "policy": "Every sweep, any open receipt past its advice deadline raises an overdue notice",
+      "command": {
+        "name": "SweepAdviceOverdue",
+        "via": "timer"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReceivingAdviceOverdue"
+      ],
+      "evidence": [
+        "internal/application/usecases/advice.go",
+        "docs/adr/0023-receiving-advice-at-close-with-standard-discrepancy-vocabulary.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "No tolerance policy: every over-receipt is reported, never silently accepted. A tolerance is a later decision.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "Damaged units are counted but have no quarantine flow. They are not booked as stock.",
+      "evidence": "docs/adr/0003-local-copies-and-handover.md"
+    },
+    {
+      "text": "If inventory-storage rejects a line, it skips and logs. The receipt stays the source of truth, nothing compensates.",
+      "evidence": "docs/adr/0003-local-copies-and-handover.md"
+    },
+    {
+      "text": "The deprecated appointment routes stay in the API pending a decision, although dock-scheduling owns appointments.",
+      "evidence": "docs/adr/0022-stage-e-removes-the-backfill-the-legacy-encoders-and-replay.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "The receiving advice has no reader yet. Partner connectivity could send it back to the supplier.",
+      "evidence": "docs/adr/0023-receiving-advice-at-close-with-standard-discrepancy-vocabulary.md"
+    }
+  ]
+}

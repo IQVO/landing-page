@@ -1,0 +1,385 @@
+{
+  "context": "node-topology",
+  "oneLine": "Owns the physical shape of the retail network: its buildings (nodes), the lanes between them, the regions, and which delivery station serves each postal prefix.",
+  "pivotal": [
+    "NodeRegistered",
+    "NodeOperationalProfileDeclared",
+    "NodeActivated",
+    "LaneOpened",
+    "ServiceAreaAssigned"
+  ],
+  "rows": [
+    {
+      "title": "Define a region",
+      "story": "A planner names a region with a short unique code. Every node and every postal-prefix assignment must belong to a region that exists.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "DefineRegion",
+        "operationId": "defineRegion"
+      },
+      "aggregate": "Region",
+      "events": [
+        "RegionDefined"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "keeps a copy of the region"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "keeps a copy of the region"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/regions.go",
+        "internal/domain/region/region.go"
+      ]
+    },
+    {
+      "title": "Register a node",
+      "story": "A planner, or the vendor-connectivity service for a vendor's building, registers a building. It starts as Proposed. The kind of building decides who may run it and what it can do.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "reads": [
+        "Regions",
+        "Vendor node codes already taken"
+      ],
+      "command": {
+        "name": "RegisterNode",
+        "operationId": "registerNode"
+      },
+      "aggregate": "Node",
+      "events": [
+        "NodeRegistered"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "starts tracking the node as Proposed, so no listing is suppressed yet"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "keeps a copy of the node's type and region"
+        },
+        {
+          "system": "last-mile-delivery",
+          "does": "keeps the node only if it is a delivery station"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "keeps the node and re-plans pickups on lanes that end at it"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/nodes.go",
+        "internal/domain/node/node.go",
+        "internal/domain/node/types.go"
+      ]
+    },
+    {
+      "title": "Declare how a node operates",
+      "story": "The vendor or a planner declares opening hours, handling time, pickup cutoffs and a throughput cap. Each declaration is a new numbered revision that never overwrites an earlier one.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "DeclareOperationalProfile",
+        "operationId": "declareOperationalProfile"
+      },
+      "aggregate": "Node",
+      "events": [
+        "NodeOperationalProfileDeclared"
+      ],
+      "then": [
+        {
+          "system": "linehaul-transportation",
+          "does": "re-plans pickup departures from the node's cutoffs"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "keeps handling time, cutoffs and cap when the revision is newer"
+        },
+        {
+          "system": "seller-inbound",
+          "does": "keeps the node's carton limits to check shipments against"
+        },
+        {
+          "system": "node-performance",
+          "does": "acknowledges the event and changes nothing"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/nodes.go",
+        "internal/domain/node/profile.go",
+        "docs/adr/0007-inbound-limits-on-the-operational-profile.md"
+      ]
+    },
+    {
+      "title": "Put a node into service",
+      "story": "A planner activates a Proposed or Suspended node. A fulfillment centre must first have a cutoff and a handling time above zero.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "ActivateNode",
+        "operationId": "activateNode"
+      },
+      "aggregate": "Node",
+      "events": [
+        "NodeActivated"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "marks the node sellable and restores listings suppressed for it"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "generates the node's pickup departures"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "marks the node active for promising"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/nodes.go",
+        "internal/domain/node/node_lifecycle.go"
+      ]
+    },
+    {
+      "title": "Suspend a node",
+      "story": "A planner pauses an active node and must give a reason. Its lanes and postal prefixes are left as they are; other contexts must treat them as unusable.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "SuspendNode",
+        "operationId": "suspendNode"
+      },
+      "aggregate": "Node",
+      "events": [
+        "NodeSuspended"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "suppresses the node's live listings"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "cancels the node's future pickups"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "marks the node suspended"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/nodes.go",
+        "internal/domain/node/node_lifecycle.go",
+        "docs/adr/0003-no-consumed-contracts-and-ohs-reads.md"
+      ]
+    },
+    {
+      "title": "Retire a node for good",
+      "story": "A planner retires an active or suspended node. Retired is final: any later command on that node is refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "RetireNode",
+        "operationId": "retireNode"
+      },
+      "aggregate": "Node",
+      "events": [
+        "NodeRetired"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "suppresses the node's live listings"
+        },
+        {
+          "system": "linehaul-transportation",
+          "does": "cancels the node's future pickups"
+        },
+        {
+          "system": "seller-inbound",
+          "does": "marks the node retired in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/nodes.go",
+        "internal/domain/node/node_lifecycle.go"
+      ]
+    },
+    {
+      "title": "Open a lane between two nodes",
+      "story": "A planner opens a ground or air lane. Both ends must be active, the pair of building types must be allowed, and no identical lane may already be open.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "reads": [
+        "Origin and destination nodes",
+        "Open lanes"
+      ],
+      "command": {
+        "name": "OpenLane",
+        "operationId": "openLane"
+      },
+      "aggregate": "Lane",
+      "events": [
+        "LaneOpened"
+      ],
+      "then": [
+        {
+          "system": "linehaul-transportation",
+          "does": "keeps the lane and re-plans pickups at its origin"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "adds the lane to the network graph it searches"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "adds the lane to the network graph it searches"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/lanes.go",
+        "internal/domain/lane/lane.go"
+      ]
+    },
+    {
+      "title": "Declare what a lane costs",
+      "story": "A planner states the cost, in cents, of moving one package across an open lane. A newer declaration replaces the previous one. A lane never declared on publishes nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "DeclareLaneCost",
+        "operationId": "declareLaneCost"
+      },
+      "aggregate": "Lane",
+      "events": [
+        "LaneCostDeclared"
+      ],
+      "then": [
+        {
+          "system": "order-sourcing",
+          "does": "keeps the latest cost per lane and prices candidate paths in cents"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/lanes.go",
+        "internal/domain/lane/lane.go",
+        "docs/adr/0014-lane-cost-declaration.md"
+      ]
+    },
+    {
+      "title": "Close a lane",
+      "story": "A planner closes an open lane. A closed lane is never reopened; a new lane gets a new identity.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "CloseLane",
+        "operationId": "closeLane"
+      },
+      "aggregate": "Lane",
+      "events": [
+        "LaneClosed"
+      ],
+      "then": [
+        {
+          "system": "linehaul-transportation",
+          "does": "schedules no new departure on the lane"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "marks the lane closed in its network graph"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/lanes.go",
+        "internal/domain/lane/lane.go"
+      ]
+    },
+    {
+      "title": "Assign a postal prefix to a delivery station",
+      "story": "A planner decides which delivery station serves a postal prefix. A later assignment must carry a higher version; the prefix takes the station's region.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "reads": [
+        "The delivery station",
+        "Its region"
+      ],
+      "command": {
+        "name": "AssignServiceArea",
+        "operationId": "assignServiceArea"
+      },
+      "aggregate": "ServiceArea",
+      "events": [
+        "ServiceAreaAssigned"
+      ],
+      "then": [
+        {
+          "system": "last-mile-delivery",
+          "does": "keeps the assignment when its version is higher"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "keeps the assignment when its version is higher"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "keeps the prefix-to-station assignment"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/servicearea.go",
+        "internal/domain/servicearea/servicearea.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A suspended or retired node keeps its open lanes and assigned prefixes. Nothing closes or reassigns them; readers must treat them as unusable.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "A lane never costed reads zero but publishes nothing, so readers cannot tell 'free' from 'unknown' by the number alone.",
+      "evidence": "docs/adr/0014-lane-cost-declaration.md"
+    },
+    {
+      "text": "A profile may name a time zone other than its node's. The model never says whether they must match.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "After repeated failed sends (20 by default) an event is skipped, so a later event of the same node or lane can overtake it.",
+      "evidence": "docs/adr/0005-outbox-relay-and-attempt-cap.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A declared lane cost is the first step toward costing paths in money. A measured cost per departure could later refine it.",
+      "evidence": "docs/adr/0014-lane-cost-declaration.md"
+    }
+  ]
+}

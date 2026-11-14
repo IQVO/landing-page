@@ -1,0 +1,478 @@
+{
+  "context": "offer-availability",
+  "oneLine": "Keeps the catalogue of items, where each item is offered (listings) and how many units each node says it has, and hides listings that cannot be sold.",
+  "pivotal": [
+    "CatalogItemCreated",
+    "ListingCreated",
+    "ListingAvailabilityChanged",
+    "ListingSuppressed",
+    "ListingRestored"
+  ],
+  "rows": [
+    {
+      "title": "Add an item to the catalogue",
+      "story": "Merchandising creates an item with its size, weight, handling flags and an optional barcode. A barcode already held by another item or pack level is refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network merchandising"
+      },
+      "reads": [
+        "Barcodes already in use"
+      ],
+      "command": {
+        "name": "CreateCatalogItem",
+        "operationId": "createCatalogItem"
+      },
+      "aggregate": "Item",
+      "events": [
+        "CatalogItemCreated"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "keeps a copy of the item as active"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the item's size, weight and handling flags"
+        },
+        {
+          "system": "shopping-cart",
+          "does": "marks the item as catalogued, so it can be added to a cart"
+        },
+        {
+          "system": "pricing",
+          "does": "knows the item exists, so it can be priced"
+        },
+        {
+          "system": "product-content",
+          "does": "records the item as active"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/catalog.go",
+        "internal/domain/catalog/catalog.go"
+      ]
+    },
+    {
+      "title": "Declare how an item is packed",
+      "story": "Merchandising declares a pack level (each, inner, case or pallet) with its barcode and units. A new barcode at a level replaces the old one, which is retired in the same step.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network merchandising"
+      },
+      "command": {
+        "name": "DeclarePackLevel",
+        "operationId": "declarePackLevel"
+      },
+      "aggregate": "Item",
+      "events": [
+        "CatalogItemPackagingDeclared",
+        "CatalogItemPackLevelRetired"
+      ],
+      "then": [
+        {
+          "system": "seller-inbound",
+          "does": "keeps the pack level to check shipment contents"
+        },
+        {
+          "system": "vendor-connectivity",
+          "does": "keeps the pack level in its packaging view"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/catalog.go",
+        "internal/domain/catalog/packaging.go",
+        "docs/adr/0006-catalog-gtin-packaging-and-listing-owner.md"
+      ]
+    },
+    {
+      "title": "Retire a pack level",
+      "story": "Merchandising retires the active pack level. The level stays on the item, so a document that names its barcode still resolves.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network merchandising"
+      },
+      "command": {
+        "name": "RetirePackLevel",
+        "operationId": "retirePackLevel"
+      },
+      "aggregate": "Item",
+      "events": [
+        "CatalogItemPackLevelRetired"
+      ],
+      "then": [
+        {
+          "system": "seller-inbound",
+          "does": "marks the pack level retired in its copy"
+        },
+        {
+          "system": "vendor-connectivity",
+          "does": "marks the pack level retired in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/catalog.go",
+        "internal/domain/catalog/packaging.go"
+      ]
+    },
+    {
+      "title": "Offer an item from a node",
+      "story": "Merchandising offers an item from one node. The listing starts live only if the node is active, the item is not discontinued and the seller, if any, is not suspended. Otherwise it starts hidden.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network merchandising"
+      },
+      "reads": [
+        "Node status copy",
+        "Seller status copy"
+      ],
+      "command": {
+        "name": "CreateListing",
+        "operationId": "createListing"
+      },
+      "aggregate": "Listing",
+      "events": [
+        "ListingCreated",
+        "ListingSuppressed"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "keeps a copy of the listing"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "keeps a copy of the listing"
+        },
+        {
+          "system": "vendor-connectivity",
+          "does": "keeps a copy of the listing, so it can check feed lines"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/listings.go",
+        "internal/domain/listing/listing.go"
+      ]
+    },
+    {
+      "title": "Apply a stock feed for a node",
+      "story": "A vendor reports quantities for one node. Each line sets a listing's quantity; a full feed zeroes the listings it leaves out. A feed older than the last applied one is set aside and changes nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor"
+      },
+      "reads": [
+        "Last applied feed time of the node"
+      ],
+      "command": {
+        "name": "ApplyInventoryFeed",
+        "operationId": "applyInventoryFeed"
+      },
+      "aggregate": "InventoryFeed",
+      "events": [
+        "ListingAvailabilityChanged",
+        "InventoryFeedApplied"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "keeps the quantity unless it is older than the one it holds"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "keeps the quantity of the listing"
+        },
+        {
+          "system": "node-performance",
+          "does": "records that the node sent a feed"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/feeds.go",
+        "internal/domain/feed/feed.go",
+        "internal/domain/feed/feed_apply.go"
+      ]
+    },
+    {
+      "title": "Discontinue an item",
+      "story": "Merchandising withdraws an item for good. Every listing of the item is hidden in the same step, and a listing hidden for this reason is never put back.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network merchandising"
+      },
+      "command": {
+        "name": "DiscontinueItem",
+        "operationId": "discontinueCatalogItem"
+      },
+      "aggregate": "Item",
+      "events": [
+        "CatalogItemDiscontinued",
+        "ListingSuppressed"
+      ],
+      "then": [
+        {
+          "system": "shopping-cart",
+          "does": "stops new additions to carts; lines already in carts stay"
+        },
+        {
+          "system": "pricing",
+          "does": "withdraws the item's price if it has an active one"
+        },
+        {
+          "system": "product-content",
+          "does": "retires the item's content"
+        },
+        {
+          "system": "delivery-promise",
+          "does": "marks the item discontinued in its copy"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the item discontinued in its copy"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/catalog.go",
+        "internal/domain/catalog/catalog.go",
+        "internal/domain/listing/listing.go"
+      ]
+    },
+    {
+      "title": "Keep a copy of node status",
+      "story": "node-topology announces each new node. Here it is noted as Proposed, so listings created for it start hidden until it goes live.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeRegistered"
+      },
+      "policy": "Whenever a node is registered, note it as Proposed unless it is already known",
+      "updates": [
+        "Node status copy"
+      ],
+      "command": {
+        "name": "ApplyNodeEvent",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/node_events.go",
+        "internal/adapters/inbound/kafka/node_consumer.go",
+        "internal/domain/nodestatus/nodestatus.go"
+      ]
+    },
+    {
+      "title": "Show listings again when a node goes live",
+      "story": "When a node is activated, its hidden listings come back. One stays hidden if its item is discontinued or its seller is suspended, and it then shows that reason.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeActivated"
+      },
+      "policy": "Whenever a node is activated, restore the listings hidden because the node was unavailable",
+      "reads": [
+        "Seller status copy"
+      ],
+      "updates": [
+        "Node status copy"
+      ],
+      "command": {
+        "name": "ApplyNodeEvent",
+        "via": "policy"
+      },
+      "aggregate": "Listing",
+      "events": [
+        "ListingRestored",
+        "ListingSuppressed"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "marks the listing sellable again"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the listing sellable again"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/node_events.go",
+        "internal/adapters/inbound/kafka/node_consumer.go",
+        "internal/domain/listing/listing.go"
+      ]
+    },
+    {
+      "title": "Hide listings when a node leaves service",
+      "story": "When a node is suspended, or retired for good, every live listing on it is hidden. Retired is final.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeSuspended"
+      },
+      "policy": "Whenever a node is suspended or retired, hide all its live listings",
+      "updates": [
+        "Node status copy"
+      ],
+      "command": {
+        "name": "ApplyNodeEvent",
+        "via": "policy"
+      },
+      "aggregate": "Listing",
+      "events": [
+        "ListingSuppressed"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "marks the listing suppressed"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the listing suppressed"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/node_events.go",
+        "internal/adapters/inbound/kafka/node_consumer.go",
+        "internal/domain/nodestatus/nodestatus.go"
+      ]
+    },
+    {
+      "title": "Hide a suspended seller's listings",
+      "story": "When a seller is suspended, every live listing the seller owns is hidden. A listing already hidden for a stronger reason keeps that reason.",
+      "trigger": {
+        "kind": "external",
+        "system": "seller-inbound",
+        "event": "SellerSuspended"
+      },
+      "policy": "Whenever a seller is suspended, hide every live listing the seller owns",
+      "updates": [
+        "Seller status copy"
+      ],
+      "command": {
+        "name": "ApplySellerEvent",
+        "via": "policy"
+      },
+      "aggregate": "Listing",
+      "events": [
+        "ListingSuppressed"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "marks the listing suppressed"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the listing suppressed"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/seller_events.go",
+        "internal/adapters/inbound/kafka/seller_consumer.go",
+        "docs/adr/0013-seller-status-and-received-stock-drive-owner-listings.md"
+      ]
+    },
+    {
+      "title": "Show a reinstated seller's listings again",
+      "story": "When a seller is reinstated, the listings hidden for that seller come back, unless the node is still unavailable or the item is discontinued. Then they stay hidden for that reason.",
+      "trigger": {
+        "kind": "external",
+        "system": "seller-inbound",
+        "event": "SellerReinstated"
+      },
+      "policy": "Whenever a seller is reinstated, restore its listings unless another reason still holds",
+      "reads": [
+        "Node status copy"
+      ],
+      "updates": [
+        "Seller status copy"
+      ],
+      "command": {
+        "name": "ApplySellerEvent",
+        "via": "policy"
+      },
+      "aggregate": "Listing",
+      "events": [
+        "ListingRestored",
+        "ListingSuppressed"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "marks the listing sellable again"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "marks the listing sellable again"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/seller_events.go",
+        "internal/adapters/inbound/kafka/seller_consumer.go",
+        "internal/domain/listing/listing.go"
+      ]
+    },
+    {
+      "title": "Create listings from received seller stock",
+      "story": "When a seller's shipment is received at a node, each item without a listing for that seller there gets one, at zero quantity. Items that cannot be matched are skipped and counted, never an error.",
+      "trigger": {
+        "kind": "external",
+        "system": "seller-inbound",
+        "event": "InboundShipmentReceived"
+      },
+      "policy": "Whenever a seller's shipment is received, create the seller's missing listings on that node",
+      "reads": [
+        "Catalogue items by barcode",
+        "Node and seller status copies"
+      ],
+      "command": {
+        "name": "ApplyReceivedStock",
+        "via": "policy"
+      },
+      "aggregate": "Listing",
+      "events": [
+        "ListingCreated",
+        "ListingSuppressed"
+      ],
+      "then": [
+        {
+          "system": "delivery-promise",
+          "does": "keeps a copy of each new listing"
+        },
+        {
+          "system": "order-sourcing",
+          "does": "keeps a copy of each new listing"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/received_stock.go",
+        "internal/adapters/inbound/kafka/received_consumer.go",
+        "docs/adr/0014-received-stock-creates-owner-listings.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A full feed rewrites every listing of a node in one transaction. No throughput or lock-time figure has been measured.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "While the node-status consumer lags, listings keep their last state and the service still reports ready.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "No contract test checks the downstream readers of these events. The reader list comes from the network map, not from this repo.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    },
+    {
+      "text": "Shipments received before seller-inbound added item lines never become listings. They need a manual listing or a later shipment.",
+      "evidence": "docs/adr/0014-received-stock-creates-owner-listings.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Measure feed apply time, the share of stale lines and how long hiding takes after a node leaves service. Proposed, not built.",
+      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+    }
+  ]
+}

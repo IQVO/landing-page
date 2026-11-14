@@ -1,0 +1,427 @@
+{
+  "context": "network-inventory-planning",
+  "oneLine": "Plans moving stock between warehouses: advises, then runs an approved transfer from stock reservation through pick, dispatch and arrival.",
+  "pivotal": [
+    "TransferPlanApproved",
+    "TransferAllocationRequested",
+    "WorkDemandReleased",
+    "TransferAllocationReleaseRequested"
+  ],
+  "rows": [
+    {
+      "title": "Keep the site capability copy",
+      "story": "facility-layout says which sites may send or receive transfers. Here a local copy follows it, and a newer revision replaces the older one, so planning never has to ask.",
+      "trigger": {
+        "kind": "external",
+        "system": "facility-layout",
+        "event": "SiteCapabilityChanged"
+      },
+      "policy": "Whenever a site's capability changes, replace its row if the revision is newer",
+      "updates": [
+        "Site capabilities"
+      ],
+      "command": {
+        "name": "ApplySiteCapabilityChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/planning/capability.go"
+      ]
+    },
+    {
+      "title": "Keep the demand copy",
+      "story": "order-management reports the units each order line needs from a site. A local copy keeps the newest fact per line. A removed line counts for nothing.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-management",
+        "event": "SiteSkuDemandChanged"
+      },
+      "policy": "Whenever an order line's demand changes, keep its newest version; a removed line counts for none",
+      "updates": [
+        "Site demand per SKU"
+      ],
+      "command": {
+        "name": "ApplySiteSkuDemandChanged",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/planning/demand.go",
+        "docs/docs/adr/0014-site-sku-demand-ordering-guard.md"
+      ]
+    },
+    {
+      "title": "Keep the capacity plan copy",
+      "story": "warehouse-planning publishes capacity plans. A local copy keeps the newest plan for each plan id. A plan with no site is left out.",
+      "trigger": {
+        "kind": "external",
+        "system": "warehouse-planning",
+        "event": "CapacityPlanPublished"
+      },
+      "policy": "Whenever a plan for a site is published, keep the newest version of it",
+      "updates": [
+        "Published capacity plans"
+      ],
+      "command": {
+        "name": "ApplyCapacityPlanPublished",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/consumers_capacity_plan.go",
+        "internal/domain/planning/capacity_plan.go"
+      ]
+    },
+    {
+      "title": "Set the rebalance rules",
+      "story": "An operator writes the policies that say which SKUs may move, and the lanes between sites. The scheduled rebalance plans only from these catalogues. Lanes are set the same way.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "PutRebalancePolicy",
+        "operationId": "putRebalancePolicy"
+      },
+      "aggregate": "RebalancePolicy",
+      "evidence": [
+        "internal/application/usecases/catalogue.go",
+        "internal/domain/transfer/catalogue.go",
+        "docs/docs/adr/0015-rebalance-policy-and-lane-catalogue.md"
+      ]
+    },
+    {
+      "title": "Try out transfers without committing",
+      "story": "An operator submits positions, policies and lanes and gets advisory proposals back. A simulation can instead use the local copies. Nothing is reserved or published.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "GenerateTransferProposals",
+        "operationId": "generateTransferProposals"
+      },
+      "evidence": [
+        "internal/application/usecases/generate_transfer_proposals.go",
+        "internal/application/usecases/simulate_transfer_options.go"
+      ]
+    },
+    {
+      "title": "Approve a transfer and ask for stock",
+      "story": "An operator approves a proposal. It is checked against the local copies, and refused if a fact is missing or stale. SKUs sold in cases move in whole cases. inventory-storage is then asked for the origin stock.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Site capabilities",
+        "Site demand per SKU",
+        "Published capacity plans",
+        "Pack levels"
+      ],
+      "command": {
+        "name": "ApproveTransfer",
+        "operationId": "approveTransfer"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "TransferPlanApproved",
+        "TransferAllocationRequested",
+        "TransferStateAdvanced"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "reserves the origin stock and answers allocated or rejected"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/approve_transfer.go",
+        "internal/domain/transfer/saga.go",
+        "internal/domain/transfer/approval.go",
+        "docs/docs/adr/0003-transfer-saga.md"
+      ]
+    },
+    {
+      "title": "Release the pick once stock is held",
+      "story": "inventory-storage reports the stock reserved. The transfer becomes allocated and the pick work is released in the same step, so an allocated transfer never lacks its pick work.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "TransferStockAllocated"
+      },
+      "policy": "Whenever origin stock is reserved, mark the transfer allocated and release its pick work",
+      "command": {
+        "name": "ApplyTransferAllocation",
+        "via": "policy"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "WorkDemandReleased",
+        "TransferStateAdvanced"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "creates the transfer pick as a work unit referring to the transfer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/transfer_facts.go",
+        "internal/adapters/inbound/kafka/transfer_reply_consumer.go",
+        "docs/docs/adr/0005-work-demand-release-and-fact-transitions.md"
+      ]
+    },
+    {
+      "title": "Give up when stock cannot be held",
+      "story": "inventory-storage refuses the reservation, with a reason from a fixed list. The transfer is marked unfulfillable and ends there.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "TransferStockAllocationRejected"
+      },
+      "policy": "Whenever origin stock cannot be reserved, mark the transfer unfulfillable with the reason",
+      "command": {
+        "name": "ApplyTransferRejection",
+        "via": "policy"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "TransferStateAdvanced"
+      ],
+      "evidence": [
+        "internal/application/usecases/approve_transfer.go",
+        "internal/adapters/inbound/kafka/transfer_reply_consumer.go"
+      ]
+    },
+    {
+      "title": "Cancel a transfer",
+      "story": "An operator cancels with a reason. Before any stock is held the transfer is cancelled at once. If stock is already reserved, a release is requested first. From picking onwards the cancel is refused.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "CancelTransfer",
+        "operationId": "cancelTransfer"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "TransferAllocationReleaseRequested",
+        "TransferStateAdvanced"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "lets go of the origin reservation and reports back"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/cancel_transfer.go",
+        "internal/domain/transfer/saga.go",
+        "docs/docs/adr/0022-cancel-after-allocation-compensation.md"
+      ]
+    },
+    {
+      "title": "Finish a cancel once the hold is gone",
+      "story": "inventory-storage confirms the origin reservation is released, or was already gone. Either way the hold no longer exists, so the transfer is cancelled for good.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "TransferStockAllocationReleased"
+      },
+      "policy": "Whenever the origin reservation is released, mark the cancelling transfer cancelled",
+      "command": {
+        "name": "ApplyTransferAllocationReleased",
+        "via": "policy"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "TransferStateAdvanced"
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_transfer_released.go",
+        "internal/adapters/inbound/kafka/transfer_reply_released.go",
+        "docs/docs/adr/0022-cancel-after-allocation-compensation.md"
+      ]
+    },
+    {
+      "title": "Release the dispatch once picked",
+      "story": "fulfillment-execution reports the pick, possibly short. The picked quantity is recorded and dispatch work is released for exactly that quantity.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TransferPicked"
+      },
+      "policy": "Whenever the pick completes, record the picked quantity and release the dispatch work",
+      "command": {
+        "name": "ApplyTransferPick",
+        "via": "policy"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "WorkDemandReleased",
+        "TransferStateAdvanced"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "creates the dispatch as a work unit referring to the transfer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/transfer_facts.go",
+        "internal/adapters/inbound/kafka/transfer_fact_consumer.go",
+        "docs/docs/adr/0005-work-demand-release-and-fact-transitions.md"
+      ]
+    },
+    {
+      "title": "Mark the transfer in transit",
+      "story": "fulfillment-execution reports that the goods left the origin. The transfer moves to in transit. No work is released for this step.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TransferDispatched"
+      },
+      "policy": "Whenever dispatch completes, mark the transfer in transit",
+      "command": {
+        "name": "ApplyTransferDispatched",
+        "via": "policy"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "TransferStateAdvanced"
+      ],
+      "evidence": [
+        "internal/application/usecases/transfer_facts.go",
+        "internal/adapters/inbound/kafka/transfer_fact_consumer.go"
+      ]
+    },
+    {
+      "title": "Mark the transfer arrived",
+      "story": "inventory-storage reports the receipt staged at the destination. A work-driven arrival fact from fulfillment-execution may also exist. Whichever comes first moves the transfer to arrived; the other is skipped.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "TransferReceiptStaged"
+      },
+      "policy": "Whenever the first arrival signal comes, mark the transfer arrived",
+      "command": {
+        "name": "ApplyTransferReceiptStaged",
+        "via": "policy"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "TransferStateAdvanced"
+      ],
+      "evidence": [
+        "internal/application/usecases/transfer_facts.go",
+        "internal/adapters/inbound/kafka/transfer_fact_consumer.go",
+        "docs/docs/adr/0005-work-demand-release-and-fact-transitions.md"
+      ]
+    },
+    {
+      "title": "Close the transfer once stowed",
+      "story": "inventory-storage reports the goods stowed at the destination, with where they went. The transfer is received and its journey ends.",
+      "trigger": {
+        "kind": "external",
+        "system": "inventory-storage",
+        "event": "TransferStockStowed"
+      },
+      "policy": "Whenever the stow is confirmed, mark the transfer received and keep where the stock went",
+      "command": {
+        "name": "ApplyTransferStow",
+        "via": "policy"
+      },
+      "aggregate": "InterWarehouseTransfer",
+      "events": [
+        "TransferStateAdvanced"
+      ],
+      "evidence": [
+        "internal/application/usecases/transfer_facts.go",
+        "internal/adapters/inbound/kafka/transfer_fact_consumer.go"
+      ]
+    },
+    {
+      "title": "Flag transfers that are stuck",
+      "story": "A periodic check compares each open transfer with a time limit for its state and reports the ones past it. It only reports: it never cancels or changes a transfer.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Health check"
+      },
+      "policy": "Every check, report each open transfer that has stayed too long in its state",
+      "command": {
+        "name": "CheckStuckTransfers",
+        "via": "timer"
+      },
+      "aggregate": "StuckCheck",
+      "events": [
+        "TransferStuckDetected"
+      ],
+      "evidence": [
+        "internal/application/usecases/saga_health.go",
+        "internal/domain/transfer/stuck.go",
+        "docs/docs/adr/0007-phase4-observability-and-scheduled-runs.md"
+      ]
+    },
+    {
+      "title": "Run a scheduled rebalance",
+      "story": "On a schedule, the planner works from the local copies and the operator's catalogues, and records how many proposals it made and how many it rejected. It never approves anything.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Rebalance schedule"
+      },
+      "policy": "Every run, plan proposals from the local copies and record the outcome, without approving any",
+      "reads": [
+        "Site capabilities",
+        "Site demand per SKU",
+        "Published capacity plans"
+      ],
+      "command": {
+        "name": "RunScheduledRebalance",
+        "via": "timer"
+      },
+      "aggregate": "Planner",
+      "events": [
+        "RebalanceRunCompleted"
+      ],
+      "evidence": [
+        "internal/application/usecases/scheduled_rebalance.go",
+        "internal/domain/transfer/planner.go",
+        "docs/docs/adr/0015-rebalance-policy-and-lane-catalogue.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A transfer can no longer be cancelled once picking has started. The stock is moving, and there is no damage or short-pick flow yet.",
+      "evidence": "docs/docs/adr/0022-cancel-after-allocation-compensation.md"
+    },
+    {
+      "text": "If the dispatch path is not configured, the dispatch work is withheld and nothing releases it later. The transfer waits in picked.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "The scheduled rebalance cannot see stock positions, so it plans only from site capability, demand and catalogues.",
+      "evidence": "docs/docs/adr/0015-rebalance-policy-and-lane-catalogue.md"
+    },
+    {
+      "text": "The stuck-transfer check only reports. Nothing retries or recovers a stuck transfer on its own.",
+      "evidence": "docs/docs/adr/0007-phase4-observability-and-scheduled-runs.md"
+    },
+    {
+      "text": "The dwell report shows a transfer's age at each step, not the time spent in a state. A true dwell time needs a new field.",
+      "evidence": "docs/docs/adr/0009-analytics-read-side.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "If a sibling context ever publishes stock positions, they could be kept locally and the scheduled pass could plan from real stock.",
+      "evidence": "docs/docs/adr/0015-rebalance-policy-and-lane-catalogue.md"
+    },
+    {
+      "text": "Adding a dwell-seconds field to the state-change event would give a true time-in-state report.",
+      "evidence": "docs/docs/adr/0009-analytics-read-side.md"
+    }
+  ]
+}

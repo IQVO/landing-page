@@ -1,0 +1,295 @@
+{
+  "context": "returns-processing",
+  "oneLine": "Handles returned goods: authorizes a return for a shipped line, receives and grades the parcel, decides its fate and hands restockable units to stock.",
+  "pivotal": [
+    "ReturnAuthorized",
+    "ReturnReceiptOpened",
+    "ReturnLineInspected",
+    "DispositionDecided",
+    "ReturnLineStaged"
+  ],
+  "rows": [
+    {
+      "title": "Keep the product classes",
+      "story": "product-master classifies each product (for example hazmat or temperature class). Returns keeps the latest version as a local copy, so grading never needs a live call.",
+      "trigger": {
+        "kind": "external",
+        "system": "product-master",
+        "event": "ProductClassified"
+      },
+      "policy": "Whenever a product is classified, keep it if its version is newer than the copy",
+      "updates": [
+        "Product classes"
+      ],
+      "command": {
+        "name": "ApplyProductClassification",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_classifications.go",
+        "internal/adapters/inbound/kafka/product_classes.go"
+      ]
+    },
+    {
+      "title": "Keep the allocated order lines",
+      "story": "order-management announces which order lines were allocated and with which product. Returns keeps them, so a return request never has to name the product itself.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-management",
+        "event": "OrderAllocated"
+      },
+      "policy": "Whenever order lines are allocated, store each line with its product",
+      "updates": [
+        "Allocated lines"
+      ],
+      "command": {
+        "name": "ApplyAllocations",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_allocations.go",
+        "internal/adapters/inbound/kafka/allocated_lines.go"
+      ]
+    },
+    {
+      "title": "Keep the manifested packages",
+      "story": "fulfillment-execution reports each manifested package. A line with a manifested package is proof that it shipped, which a return needs.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "PackageManifested"
+      },
+      "policy": "Whenever a package is manifested, record which order line it carried",
+      "updates": [
+        "Manifested packages"
+      ],
+      "command": {
+        "name": "ApplyManifest",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consume_manifests.go",
+        "internal/adapters/inbound/kafka/manifests.go"
+      ]
+    },
+    {
+      "title": "Set the return rules",
+      "story": "An operator declares a version of the disposition policy: return window, unit cap per line and which outcome each grade and product class gets. The newest version becomes current.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DeclareDispositionPolicy",
+        "operationId": "declareDispositionPolicy"
+      },
+      "aggregate": "DispositionPolicy",
+      "evidence": [
+        "internal/application/usecases/declare_disposition_policy.go",
+        "internal/domain/disposition/policy.go"
+      ]
+    },
+    {
+      "title": "Authorize a return",
+      "story": "An operator asks to take back units of a shipped order line. It is authorized only if the line shipped, the window is open, no other return is open for it and the quantity is within the cap.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Allocated lines",
+        "Manifested packages",
+        "Current return rules"
+      ],
+      "command": {
+        "name": "AuthorizeReturn",
+        "operationId": "authorizeReturn"
+      },
+      "aggregate": "RMA",
+      "events": [
+        "ReturnAuthorized"
+      ],
+      "evidence": [
+        "internal/application/usecases/authorize_return.go",
+        "internal/domain/returnauthorization/rma.go"
+      ]
+    },
+    {
+      "title": "Refuse a return request (event not raised yet)",
+      "story": "A refused request is answered with an error and nothing is saved or published. The refusal event and the reject step exist in the domain, but no use case raises them yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RejectReturn",
+        "via": "policy"
+      },
+      "aggregate": "RMA",
+      "events": [
+        "ReturnAuthorizationRejected"
+      ],
+      "evidence": [
+        "internal/application/usecases/authorize_return.go",
+        "internal/domain/returnauthorization/rma.go",
+        "internal/domain/returnauthorization/events.go"
+      ]
+    },
+    {
+      "title": "Open a receipt for the arrived parcel",
+      "story": "A parcel arrives. Every line is either matched to a return authorization or recorded as unexpected, never silently accepted.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "OpenReturnReceipt",
+        "operationId": "openReturnReceipt"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReturnReceiptOpened",
+        "UnexpectedReturnReceived"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens a case for each unexpected line"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/open_return_receipt.go",
+        "internal/domain/returnreceipt/receipt.go"
+      ]
+    },
+    {
+      "title": "Grade a returned line",
+      "story": "An inspector grades one received line A, B, C or SCRAP, with reason codes. Each line is graded exactly once, for no more units than were received.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Inspector"
+      },
+      "command": {
+        "name": "InspectReturnLine",
+        "operationId": "inspectReturnLine"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "ReturnLineInspected"
+      ],
+      "evidence": [
+        "internal/application/usecases/inspect_return_line.go",
+        "internal/domain/returnreceipt/receipt.go"
+      ]
+    },
+    {
+      "title": "Decide what happens to the line",
+      "story": "In the same step as the grading, the rules turn grade, product class and current policy into an outcome. A RESTOCK below grade B, or of hazmat with no hazard rating, is swapped for the policy's fallback outcome.",
+      "trigger": {
+        "kind": "event",
+        "event": "ReturnLineInspected"
+      },
+      "policy": "Whenever a line is graded, decide its outcome from the grade, product class and policy",
+      "reads": [
+        "Product classes",
+        "Current return rules"
+      ],
+      "command": {
+        "name": "DecideDisposition",
+        "via": "policy"
+      },
+      "aggregate": "Disposition",
+      "events": [
+        "DispositionDecided"
+      ],
+      "evidence": [
+        "internal/application/usecases/inspect_return_line.go",
+        "internal/domain/disposition/disposition.go",
+        "internal/domain/disposition/policy.go"
+      ]
+    },
+    {
+      "title": "Hand restockable units to stock",
+      "story": "When the outcome is RESTOCK, the line is staged exactly once so the warehouse stock can take the units back. No other outcome touches another context.",
+      "trigger": {
+        "kind": "event",
+        "event": "DispositionDecided"
+      },
+      "policy": "Whenever the outcome is RESTOCK, stage the line once for inventory-storage",
+      "command": {
+        "name": "StageReturnLine",
+        "via": "policy"
+      },
+      "aggregate": "Disposition",
+      "events": [
+        "ReturnLineStaged"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "books the returned units as staged stock"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/inspect_return_line.go",
+        "internal/domain/disposition/disposition.go",
+        "internal/domain/disposition/events.go"
+      ]
+    },
+    {
+      "title": "Override a decision",
+      "story": "An operator replaces an outcome and must give a reason. The original is kept; a new decision points back to it. An override to RESTOCK stages the line like any other.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "OverrideDisposition",
+        "operationId": "overrideDisposition"
+      },
+      "aggregate": "Disposition",
+      "events": [
+        "DispositionDecided",
+        "ReturnLineStaged"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "books the returned units as staged stock"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/override_disposition.go",
+        "internal/domain/disposition/disposition.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "The shipped quantity is unknown: allocated lines carry no quantity, so a return is capped by the policy only.",
+      "evidence": "docs/adr/0003-local-copies-and-consumed-contracts.md"
+    },
+    {
+      "text": "The refusal event is declared but no use case raises it. A refused request answers with an error and leaves no trace.",
+      "evidence": "apis/asyncapi.yaml"
+    },
+    {
+      "text": "A staged line's stow is invisible here, so nothing shows that restocked units reached a bin.",
+      "evidence": "docs/adr/0003-local-copies-and-consumed-contracts.md"
+    },
+    {
+      "text": "No use case moves a return authorization past AUTHORIZED. The receipt alone carries the arrival.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A shipped-quantity check per line is planned once order-management adds a quantity to its allocated lines.",
+      "evidence": "docs/adr/0003-local-copies-and-consumed-contracts.md"
+    },
+    {
+      "text": "Consuming the stowed-item fact from inventory-storage could close the loop from a staged line to a bin.",
+      "evidence": "docs/adr/0003-local-copies-and-consumed-contracts.md"
+    }
+  ]
+}

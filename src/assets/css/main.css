@@ -118,11 +118,11 @@ progress::-moz-progress-bar { background: var(--deep); border-radius: 2px; }
 .brand { display: block; flex: none; line-height: 0; }
 .brand img { height: 46px; width: auto; }
 .nav__menu { display: flex; align-items: center; gap: 1.5rem; margin-left: auto; }
-.nav__links { display: flex; gap: 0.25rem; }
-.nav__links a { display: block; padding: 0.55rem 0.8rem; font-weight: 550; font-size: 0.95rem; text-decoration: none; border-radius: 6px; color: var(--muted); position: relative; }
+.nav__links { display: flex; gap: 0; }
+.nav__links a { display: block; padding: 0.55rem 0.6rem; font-weight: 550; font-size: 0.92rem; text-decoration: none; border-radius: 6px; color: var(--muted); position: relative; }
 .nav__links a:hover { color: var(--ink); background: rgba(20, 68, 108, 0.06); }
 .nav__links a[aria-current="true"] { color: var(--ink); }
-.nav__links a[aria-current="true"]::after { content: ""; position: absolute; left: 0.8rem; right: 0.8rem; bottom: 0.2rem; height: 2px; background: var(--deep); border-radius: 2px; }
+.nav__links a[aria-current="true"]::after { content: ""; position: absolute; left: 0.6rem; right: 0.6rem; bottom: 0.2rem; height: 2px; background: var(--deep); border-radius: 2px; }
 .nav__cta { display: flex; gap: 0.5rem; }
 .nav__toggle { display: none; width: 48px; height: 48px; margin-right: -10px; background: none; border: 0; cursor: pointer; border-radius: 8px; place-items: center; }
 .nav__bars, .nav__bars::before, .nav__bars::after { display: block; width: 22px; height: 2px; background: var(--ink); border-radius: 2px; transition: transform 0.25s var(--ease), opacity 0.2s; }

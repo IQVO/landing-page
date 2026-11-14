@@ -2,7 +2,7 @@
 IMAGE ?= iqvo-landing-page:dev
 PORT  ?= 8080
 
-.PHONY: help facts engineering architecture briefings build check check-online serve docker-build docker-test docker-run clean
+.PHONY: help facts engineering architecture briefings eventstorming build check check-online serve docker-build docker-test docker-run clean
 
 help: ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  %-14s %s\n", $$1, $$2}'
@@ -18,6 +18,9 @@ architecture: ## recount the architecture assessment (needs fetched ../ checkout
 
 briefings: ## recount the executive briefings (needs fetched ../ checkouts + the day's engineering/architecture data)
 	node scripts/collect-briefings.mjs
+
+eventstorming: ## prove every EventStorming board against the sibling repos' sources and write data/eventstorming.json (needs fetched ../ checkouts)
+	node scripts/collect-eventstorming.mjs
 
 build: ## render src/ + data/facts.json into dist/ (SITE_URL=https://... for absolute OG urls)
 	node scripts/build.mjs

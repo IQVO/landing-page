@@ -1,0 +1,479 @@
+{
+  "context": "inventory-storage",
+  "oneLine": "The stock ledger of a site: books received goods, stows them into bins, reserves and picks them, moves and counts them, and settles held stock and transfers.",
+  "pivotal": [
+    "ItemStowed",
+    "StockReserved",
+    "StockPicked",
+    "StockRelocated",
+    "TransferStockStowed"
+  ],
+  "rows": [
+    {
+      "title": "Book a received line as staged stock",
+      "story": "inbound-receiving reports a line counted as Good. Its units become staged stock: counted, but not usable until someone stows them. Return lines staged by returns-processing are booked the same way.",
+      "trigger": {
+        "kind": "external",
+        "system": "inbound-receiving",
+        "event": "ReceiptLineReceived"
+      },
+      "policy": "Whenever a Good line is received, book its units as staged stock, once per event",
+      "command": {
+        "name": "BookInboundReceiptLine",
+        "via": "policy"
+      },
+      "aggregate": "StockUnit",
+      "events": [
+        "StockReceived"
+      ],
+      "evidence": [
+        "internal/application/usecases/book_inbound_receipt_line.go",
+        "internal/application/usecases/receive_stock.go",
+        "internal/adapters/inbound/kafka/inbound_receipt_consumer.go",
+        "internal/domain/stock/stock_unit.go"
+      ]
+    },
+    {
+      "title": "Stow stock into a bin",
+      "story": "Inventory control scans the item and then the bin. Hazmat and temperature-sensitive products must go to a fitting zone, and hazard classes that clash may not share a bin. Stowed stock becomes usable.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Inventory control"
+      },
+      "reads": [
+        "Product classes",
+        "Facility locations"
+      ],
+      "command": {
+        "name": "StowStock",
+        "operationId": "stowStock"
+      },
+      "aggregate": "StockUnit",
+      "events": [
+        "ItemStowed",
+        "BinStockLevelChanged"
+      ],
+      "then": [
+        {
+          "system": "pick-face-replenishment",
+          "does": "re-checks whether the SKU's pick face is running low"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/stow_stock.go",
+        "internal/application/usecases/bin_level_emitter.go",
+        "internal/domain/stock/stock_unit.go"
+      ]
+    },
+    {
+      "title": "Turn a received carton into a container",
+      "story": "inbound-receiving scans a sealed carton. It becomes a container with its own license plate, but only for units the ledger has already counted, whichever of the two messages arrives first.",
+      "trigger": {
+        "kind": "external",
+        "system": "inbound-receiving",
+        "event": "ReceiptCartonReceived"
+      },
+      "policy": "Whenever a sealed carton is received, link it to a container once its units are counted",
+      "command": {
+        "name": "LinkReceiptCarton",
+        "via": "policy"
+      },
+      "aggregate": "Container",
+      "events": [
+        "ContainerRegistered"
+      ],
+      "evidence": [
+        "internal/application/usecases/link_receipt_carton.go",
+        "internal/application/usecases/container_linker.go",
+        "internal/domain/container/container.go"
+      ]
+    },
+    {
+      "title": "Stow a sealed case",
+      "story": "Inventory control scans the case and then a case or pallet bin. The case's eaches become usable stock in that bin. Stowing again into another bin of the same site moves the case.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Inventory control"
+      },
+      "command": {
+        "name": "StowContainer",
+        "operationId": "stowContainer"
+      },
+      "aggregate": "Container",
+      "events": [
+        "ContainerStowed"
+      ],
+      "then": [
+        {
+          "system": "inbound-receiving",
+          "does": "uses the stow to finish its dock-to-stock timing"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/stow_container.go",
+        "internal/domain/container/container.go"
+      ]
+    },
+    {
+      "title": "Break a sealed case into loose eaches",
+      "story": "Inventory control opens a stowed case on purpose. Its eaches move to loose stock in a chosen bin, with the same total, and the container is left empty. It is never done implicitly by a pick.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Inventory control"
+      },
+      "command": {
+        "name": "BreakCase",
+        "operationId": "breakCase"
+      },
+      "aggregate": "Container",
+      "events": [
+        "CaseBroken",
+        "ContainerEmptied"
+      ],
+      "evidence": [
+        "internal/application/usecases/break_case.go",
+        "internal/domain/container/container.go"
+      ]
+    },
+    {
+      "title": "Hold a damaged line out of stock",
+      "story": "A line received as Damaged is never usable. It becomes a held unit that waits for a decision, and its units stay out of usable stock.",
+      "trigger": {
+        "kind": "external",
+        "system": "inbound-receiving",
+        "event": "ReceiptLineReceived"
+      },
+      "policy": "Whenever a Damaged line is received, hold it out of usable stock",
+      "command": {
+        "name": "HoldStock",
+        "via": "policy"
+      },
+      "aggregate": "HeldUnit",
+      "events": [
+        "StockHeld"
+      ],
+      "evidence": [
+        "internal/application/usecases/hold_stock.go",
+        "internal/application/usecases/book_inbound_receipt_line.go",
+        "internal/domain/stock/held_unit.go"
+      ]
+    },
+    {
+      "title": "Decide what happens to held stock",
+      "story": "Inventory control decides: release it back to the normal flow, return it to the vendor, scrap it, or keep it held for rework. A release books the units as staged stock again.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Inventory control"
+      },
+      "command": {
+        "name": "DecideHeldDisposition",
+        "operationId": "decideHeldDisposition"
+      },
+      "aggregate": "HeldUnit",
+      "events": [
+        "StockReleased",
+        "StockDispositioned"
+      ],
+      "evidence": [
+        "internal/application/usecases/decide_held_disposition.go",
+        "internal/domain/stock/held_unit.go"
+      ]
+    },
+    {
+      "title": "Reserve stock for an order",
+      "story": "An order system asks to bind a quantity of usable stock to a demand. Pick faces are drawn first, in a fixed order. A repeat of the same request is recognised, and an unused reservation times out.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Order system"
+      },
+      "reads": [
+        "Usable inventory",
+        "Forward pick faces"
+      ],
+      "command": {
+        "name": "ReserveStock",
+        "operationId": "reserveStock"
+      },
+      "aggregate": "Reservation",
+      "events": [
+        "StockReserved"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "lowers the usable stock it observes for the SKU"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/reserve_stock.go",
+        "internal/domain/reservation/reservation.go",
+        "internal/domain/allocation/order.go"
+      ]
+    },
+    {
+      "title": "Revoke a reservation",
+      "story": "A reservation is cancelled and its quantity returns to usable. Timeouts are only noticed when a reservation is read: if it had already timed out, the timeout is recorded instead.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Order system or agent"
+      },
+      "command": {
+        "name": "RevokeReservation",
+        "operationId": "revokeReservation"
+      },
+      "aggregate": "Reservation",
+      "events": [
+        "ReservationRevoked",
+        "ReservationExpired"
+      ],
+      "then": [
+        {
+          "system": "wes-work-planning",
+          "does": "raises the usable stock it observes for the SKU"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/revoke_reservation.go",
+        "internal/application/usecases/reservation_expiry.go",
+        "internal/domain/reservation/reservation.go"
+      ]
+    },
+    {
+      "title": "Confirm the picks of a finished task",
+      "story": "When a pick task completes, the reservation of that order line is used up and the stock leaves. Events without a line number are counted instead, and the order's last pick confirms everything.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCompleted"
+      },
+      "policy": "Whenever a pick task completes, confirm the reservation of that order line",
+      "command": {
+        "name": "ConfirmPicksForOrder",
+        "via": "policy"
+      },
+      "aggregate": "Reservation",
+      "events": [
+        "StockPicked"
+      ],
+      "evidence": [
+        "internal/application/usecases/confirm_picks_for_order.go",
+        "internal/application/usecases/confirm_pick.go",
+        "internal/adapters/inbound/kafka/task_completed_consumer.go"
+      ]
+    },
+    {
+      "title": "Move stock between bins",
+      "story": "A finished relocation or replenishment task moves stock between two bins of one site, in one step. The move carries a reason and a reference, and can also be made by hand over the REST route.",
+      "trigger": {
+        "kind": "external",
+        "system": "fulfillment-execution",
+        "event": "TaskCompleted"
+      },
+      "policy": "Whenever a relocation or replenishment task completes, move the stock it names",
+      "command": {
+        "name": "ApplyRelocationTask",
+        "via": "policy"
+      },
+      "aggregate": "Relocation",
+      "events": [
+        "StockRelocated",
+        "BinStockLevelChanged"
+      ],
+      "then": [
+        {
+          "system": "slotting-optimization",
+          "does": "tracks slot-plan progress from moves made for slotting"
+        },
+        {
+          "system": "pick-face-replenishment",
+          "does": "closes the request when the move is a replenishment"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/apply_relocation_task.go",
+        "internal/application/usecases/apply_replenish_task.go",
+        "internal/application/usecases/relocate_stock.go",
+        "internal/domain/relocation/relocation.go"
+      ]
+    },
+    {
+      "title": "Count a bin",
+      "story": "Inventory control counts what is in a bin. A shortfall marks whole units as unlocated, an overage is only reported, and every count is recorded.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Inventory control"
+      },
+      "command": {
+        "name": "RunCycleCount",
+        "operationId": "runCycleCount"
+      },
+      "aggregate": "StockUnit",
+      "events": [
+        "CycleCountCompleted",
+        "DiscrepancyDetected",
+        "ItemUnlocated"
+      ],
+      "then": [
+        {
+          "system": "exception-management",
+          "does": "opens a case for a count mismatch and for each unlocated item"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/run_cycle_count.go",
+        "internal/domain/stock/stock_unit.go"
+      ]
+    },
+    {
+      "title": "Hold origin stock for a transfer",
+      "story": "Network planning asks this site to give up stock for a transfer line. The stock is held and the answer, allocated or rejected with a reason, is recorded exactly once per line.",
+      "trigger": {
+        "kind": "external",
+        "system": "network-inventory-planning",
+        "event": "TransferAllocationRequested"
+      },
+      "policy": "Whenever planning requests a transfer allocation, hold the stock and record the outcome once",
+      "reads": [
+        "Usable inventory"
+      ],
+      "command": {
+        "name": "AllocateTransferStock",
+        "via": "policy"
+      },
+      "aggregate": "Allocation",
+      "events": [
+        "TransferStockAllocated",
+        "TransferStockAllocationRejected"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "moves the transfer on, as allocated or rejected"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/allocate_transfer_stock.go",
+        "internal/domain/transfer/allocation.go",
+        "internal/adapters/inbound/kafka/transfer_consumer.go"
+      ]
+    },
+    {
+      "title": "Release the hold of a cancelled transfer",
+      "story": "If a transfer is cancelled after allocation, planning asks for the hold to be released. The stock returns to usable, or the hold is found already gone, and either way the transfer settles.",
+      "trigger": {
+        "kind": "external",
+        "system": "network-inventory-planning",
+        "event": "TransferAllocationReleaseRequested"
+      },
+      "policy": "Whenever planning asks to release a transfer allocation, free the hold and record the outcome once",
+      "command": {
+        "name": "ReleaseTransferAllocation",
+        "via": "policy"
+      },
+      "aggregate": "Release",
+      "events": [
+        "TransferStockAllocationReleased"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "marks the transfer cancelled"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/release_transfer_allocation.go",
+        "internal/domain/transfer/release.go",
+        "internal/adapters/inbound/kafka/transfer_consumer.go"
+      ]
+    },
+    {
+      "title": "Count a transfer arrival",
+      "story": "The destination site counts what arrived against a transfer line. Over and short counts are recorded as they are, not absorbed. An arrival nobody allocated is recorded as an exception.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Receiving clerk"
+      },
+      "command": {
+        "name": "StageTransferReceipt",
+        "operationId": "stageTransferReceipt"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "TransferReceiptStaged"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "records the counted arrival and any difference"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/stage_transfer_receipt.go",
+        "internal/domain/transfer/receipt.go",
+        "internal/domain/transfer/exception.go"
+      ]
+    },
+    {
+      "title": "Stow a transfer into destination bins",
+      "story": "The counted arrival is stowed into bins of the destination site, and the quantities must add up exactly. Only now does the destination's usable stock rise, once per transfer line.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Receiving clerk"
+      },
+      "command": {
+        "name": "StowTransferStock",
+        "operationId": "stowTransferStock"
+      },
+      "aggregate": "Receipt",
+      "events": [
+        "TransferStockStowed"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "records the stow for the transfer"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/stow_transfer_stock.go",
+        "internal/domain/transfer/receipt.go"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "There is no sweeper for timed-out reservations. An unread one keeps its stock out of usable until someone reads it.",
+      "evidence": "docs/docs/adr/0003-revocable-reservations.md"
+    },
+    {
+      "text": "A stow into a bin facility-layout never announced is allowed. Fragile, oversized and high-value products have no placement rule.",
+      "evidence": "docs/docs/ecosystem/context-map.md"
+    },
+    {
+      "text": "Short picks are not modelled: a task carries no quantity, so a confirmed line is picked in full.",
+      "evidence": "docs/docs/adr/0035-confirm-pick-from-task-completed.md"
+    },
+    {
+      "text": "A cycle-count overage is reported but never reconciled. That needs a separate receiving or audit process.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    },
+    {
+      "text": "The check that stops two identical reservations is best effort. Two requests arriving at the same moment can both pass.",
+      "evidence": "docs/docs/ddd/eventstorming.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Quality inspection could place holds. Reasons for pending checks and suspect stock are already accepted for later producers.",
+      "evidence": "docs/docs/adr/0052-held-stock-and-disposition.md"
+    },
+    {
+      "text": "Lot and expiry are carried on containers, but first-expired-first-out picking is out of scope for now.",
+      "evidence": "docs/docs/adr/0045-container-lpn-sealed-cases-breakcase-owner-segregated-stock.md"
+    },
+    {
+      "text": "Transfer allocation still draws stock in storage order. Making that order deterministic is a recorded follow-up.",
+      "evidence": "docs/docs/adr/0050-deterministic-forward-first-allocation.md"
+    }
+  ]
+}

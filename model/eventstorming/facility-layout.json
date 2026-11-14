@@ -1,0 +1,520 @@
+{
+  "context": "facility-layout",
+  "oneLine": "The warehouse map: sites, zones, aisles and coded location slots, plus the rules for what may legally sit where. Other contexts read it, none write it.",
+  "pivotal": [
+    "SiteRegistered",
+    "ZoneRegistered",
+    "AisleRegistered",
+    "LocationSlotRegistered",
+    "LocationSlotDecommissioned"
+  ],
+  "rows": [
+    {
+      "title": "Put a new building on the map",
+      "story": "An operator adds a physical facility under a short site code. Everything else on the map hangs below a site, so this comes first.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RegisterSite",
+        "operationId": "registerSite"
+      },
+      "aggregate": "Site",
+      "events": [
+        "SiteRegistered"
+      ],
+      "evidence": [
+        "internal/application/usecases/register_site.go",
+        "internal/domain/site/site.go",
+        "internal/domain/shared/events_site.go"
+      ]
+    },
+    {
+      "title": "Give a site its role in the network",
+      "story": "An operator states what part a site plays in the fulfilment network. Setting the role it already has changes nothing and raises no event.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "ChangeSiteRole",
+        "operationId": "setSiteRole"
+      },
+      "aggregate": "Site",
+      "events": [
+        "SiteRoleChanged"
+      ],
+      "evidence": [
+        "internal/application/usecases/change_site_role.go",
+        "internal/domain/site/site.go",
+        "internal/domain/site/role.go"
+      ]
+    },
+    {
+      "title": "Declare what a site can send or receive",
+      "story": "An operator says whether a site may donate stock and whether it may receive stock. Every real change publishes a new numbered snapshot; repeating the same values does nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "ChangeSiteTransferCapability",
+        "operationId": "setSiteTransferCapability"
+      },
+      "aggregate": "Site",
+      "events": [
+        "SiteCapabilityChanged"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "keeps a copy of each site's capability; the highest revision wins"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/change_site_transfer_capability.go",
+        "internal/domain/site/site.go"
+      ]
+    },
+    {
+      "title": "Add a zone to a site",
+      "story": "An operator adds a zone inside an active site, with one temperature class and a hazmat flag. Other contexts use it to know what kind of area a slot sits in.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Site (must exist and be active)"
+      ],
+      "command": {
+        "name": "RegisterZone",
+        "operationId": "registerZone"
+      },
+      "aggregate": "Zone",
+      "events": [
+        "ZoneRegistered"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "keeps the zone's hazmat and temperature class to check stows"
+        },
+        {
+          "system": "dock-scheduling",
+          "does": "keeps which site a zone belongs to, so a door knows its site"
+        },
+        {
+          "system": "yard-management",
+          "does": "keeps the zone so yard spots and doors resolve to a site"
+        },
+        {
+          "system": "outbound-shipping",
+          "does": "keeps the zone for its copy of staging locations"
+        },
+        {
+          "system": "slotting-optimization",
+          "does": "keeps a copy of the layout"
+        },
+        {
+          "system": "pick-face-replenishment",
+          "does": "keeps a copy of the layout"
+        },
+        {
+          "system": "task-interleaving",
+          "does": "keeps a copy of the layout"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/register_zone.go",
+        "internal/domain/zone/zone.go",
+        "internal/domain/shared/events.go"
+      ]
+    },
+    {
+      "title": "Add an aisle to a zone",
+      "story": "An operator adds a corridor to an active zone, with its place in the walking order and whether it is one-way or two-way.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Zone (must exist and be active)"
+      ],
+      "command": {
+        "name": "RegisterAisle",
+        "operationId": "registerAisle"
+      },
+      "aggregate": "Aisle",
+      "events": [
+        "AisleRegistered"
+      ],
+      "evidence": [
+        "internal/application/usecases/register_aisle.go",
+        "internal/domain/aisle/aisle.go"
+      ]
+    },
+    {
+      "title": "Define a kind of slot",
+      "story": "An operator defines a reusable slot type such as a pallet rack, with its role (storage, dock, yard, work centre and others) and, where the role needs it, weight and volume limits.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RegisterLocationType",
+        "operationId": "registerLocationType"
+      },
+      "aggregate": "LocationType",
+      "events": [
+        "LocationTypeRegistered"
+      ],
+      "evidence": [
+        "internal/application/usecases/register_location_type.go",
+        "internal/domain/placement/placement.go",
+        "internal/domain/placement/role.go"
+      ]
+    },
+    {
+      "title": "Say which slot kinds are allowed where",
+      "story": "An operator declares that a slot type is allowed or denied in the zones that match a condition, such as frozen zones. The rule is applied later, when each slot is registered.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Location types"
+      ],
+      "command": {
+        "name": "DefinePlacementRule",
+        "operationId": "definePlacementRule"
+      },
+      "aggregate": "PlacementRule",
+      "events": [
+        "PlacementRuleDefined"
+      ],
+      "evidence": [
+        "internal/application/usecases/define_placement_rule.go",
+        "internal/domain/placement/placement.go",
+        "internal/domain/placement/rules.go"
+      ]
+    },
+    {
+      "title": "Register one location slot",
+      "story": "An operator registers a coded slot. It is refused if its site, zone or aisle is missing or retired, or if a placement rule forbids that slot type in that zone.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Site, zone and aisle",
+        "Location types",
+        "Placement rules"
+      ],
+      "command": {
+        "name": "RegisterLocationSlot",
+        "operationId": "registerLocationSlot"
+      },
+      "aggregate": "LocationSlot",
+      "events": [
+        "LocationSlotRegistered"
+      ],
+      "then": [
+        {
+          "system": "inbound-receiving",
+          "does": "keeps inbound dock doors, ignores every other slot"
+        },
+        {
+          "system": "dock-scheduling",
+          "does": "keeps the slot; only dock doors can be booked"
+        },
+        {
+          "system": "yard-management",
+          "does": "keeps yard spots and dock doors, ignores the rest"
+        },
+        {
+          "system": "outbound-shipping",
+          "does": "keeps its copy of staging locations"
+        },
+        {
+          "system": "inventory-storage",
+          "does": "keeps the slot with its zone, hazmat and temperature class"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "counts storage positions and work stations"
+        },
+        {
+          "system": "slotting-optimization",
+          "does": "keeps a copy of the layout"
+        },
+        {
+          "system": "pick-face-replenishment",
+          "does": "keeps a copy of the layout"
+        },
+        {
+          "system": "task-interleaving",
+          "does": "keeps a copy of the layout"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/register_location_slot.go",
+        "internal/domain/slot/location_slot.go",
+        "internal/domain/placement/rules.go"
+      ]
+    },
+    {
+      "title": "Load a whole building at once",
+      "story": "An operator submits a table of slots. Missing sites, zones and aisles are created on the way and each row succeeds or fails alone. One summary says how many rows went in.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Location types",
+        "Placement rules"
+      ],
+      "command": {
+        "name": "ImportFacilityLayout",
+        "operationId": "importFacilityLayout"
+      },
+      "aggregate": "LocationSlot",
+      "events": [
+        "LocationSlotRegistered",
+        "LocationGeometryUpdated",
+        "FacilityLayoutImported"
+      ],
+      "evidence": [
+        "internal/application/usecases/import_facility_layout.go",
+        "internal/domain/slot/location_slot.go"
+      ]
+    },
+    {
+      "title": "Declare how a slot is handled",
+      "story": "An operator says whether a slot takes single items, cases or pallets. The slot must exist and must not be retired.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DeclareLocationHandlingUnit",
+        "operationId": "declareLocationHandlingUnit"
+      },
+      "aggregate": "LocationSlot",
+      "events": [
+        "LocationSlotHandlingUnitDeclared"
+      ],
+      "then": [
+        {
+          "system": "inventory-storage",
+          "does": "sets the bin's handling unit in its copy; the last write wins"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/declare_location_handling_unit.go",
+        "internal/domain/slot/location_slot.go"
+      ]
+    },
+    {
+      "title": "Pin a slot to the floor plan",
+      "story": "An operator records where a slot sits and how big it is, in metres. Distance questions then use real positions instead of an estimate.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "SetLocationGeometry",
+        "operationId": "setLocationGeometry"
+      },
+      "aggregate": "LocationSlot",
+      "events": [
+        "LocationGeometryUpdated"
+      ],
+      "then": [
+        {
+          "system": "task-interleaving",
+          "does": "keeps the slot's position in its copy of the layout"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/set_location_geometry.go",
+        "internal/domain/slot/location_slot.go"
+      ]
+    },
+    {
+      "title": "Draw an aisle's walking line",
+      "story": "An operator sets the centreline along which an aisle is walked. The travel graph uses it for measured distances.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "SetAisleGeometry",
+        "operationId": "setAisleGeometry"
+      },
+      "aggregate": "Aisle",
+      "events": [
+        "AisleGeometryUpdated"
+      ],
+      "evidence": [
+        "internal/application/usecases/set_aisle_geometry.go",
+        "internal/domain/aisle/aisle.go"
+      ]
+    },
+    {
+      "title": "Connect two aisles",
+      "story": "An operator declares that two aisles of the same zone can be crossed at a given bay. Walking distances can then go from one aisle to the other.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RegisterCrossAisle",
+        "operationId": "registerCrossAisle"
+      },
+      "aggregate": "CrossAisle",
+      "events": [
+        "CrossAisleRegistered"
+      ],
+      "evidence": [
+        "internal/application/usecases/register_cross_aisle.go",
+        "internal/domain/aisle/cross_aisle.go"
+      ]
+    },
+    {
+      "title": "Record a wall or other fixed structure",
+      "story": "An operator records a wall, column, office or conveyor on a site, so a floor plan can be drawn to scale. It is not a place where stock can sit.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RegisterFixedStructure",
+        "operationId": "registerFixedStructure"
+      },
+      "aggregate": "FixedStructure",
+      "events": [
+        "FixedStructureRegistered"
+      ],
+      "evidence": [
+        "internal/application/usecases/register_fixed_structure.go",
+        "internal/domain/structure/fixed_structure.go"
+      ]
+    },
+    {
+      "title": "Keep site capability facts fresh",
+      "story": "A site's capability is only published when it changes, so a reader would see it age out. On a fixed interval the context republishes each active site's current values as a new revision.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Capability heartbeat"
+      },
+      "policy": "Every interval, republish the current capability of each active site that has declared one",
+      "command": {
+        "name": "PublishSiteCapabilityHeartbeats",
+        "via": "timer"
+      },
+      "aggregate": "Site",
+      "events": [
+        "SiteCapabilityChanged"
+      ],
+      "then": [
+        {
+          "system": "network-inventory-planning",
+          "does": "keeps the site's capability copy fresh instead of letting it go stale"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/publish_site_capability_heartbeats.go",
+        "internal/adapters/inbound/heartbeat/heartbeat.go",
+        "docs/docs/adr/0041-site-capability-heartbeat.md"
+      ]
+    },
+    {
+      "title": "Retire a slot for good",
+      "story": "An operator permanently retires a slot. There is no way back, and its code is never reused. Other contexts stop offering it for new work.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DecommissionLocationSlot",
+        "operationId": "decommissionLocationSlot"
+      },
+      "aggregate": "LocationSlot",
+      "events": [
+        "LocationSlotDecommissioned"
+      ],
+      "then": [
+        {
+          "system": "inbound-receiving",
+          "does": "removes the door from its dock-door list"
+        },
+        {
+          "system": "dock-scheduling",
+          "does": "removes the door, so no new bookings; existing ones stay"
+        },
+        {
+          "system": "yard-management",
+          "does": "marks the slot retired in its copy"
+        },
+        {
+          "system": "inventory-storage",
+          "does": "stops offering the location for new stows"
+        },
+        {
+          "system": "warehouse-planning",
+          "does": "takes the slot out of its storage count"
+        },
+        {
+          "system": "slotting-optimization",
+          "does": "retires the slot in its copy of the layout"
+        },
+        {
+          "system": "pick-face-replenishment",
+          "does": "retires the slot in its copy of the layout"
+        },
+        {
+          "system": "task-interleaving",
+          "does": "retires the slot in its copy of the layout"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/decommission_location_slot.go",
+        "internal/domain/slot/location_slot.go",
+        "docs/docs/adr/0005-one-way-decommission.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "Retiring is one-way and nothing can set a structure to 'under maintenance'. A mistaken retirement cannot be undone through the API.",
+      "evidence": "docs/docs/adr/0005-one-way-decommission.md"
+    },
+    {
+      "text": "Distance between two zones with no recorded positions is refused with an error, not estimated. The ADR calls this the point most likely to be revisited.",
+      "evidence": "docs/docs/adr/0017-geometry-and-travel-graph.md"
+    },
+    {
+      "text": "Fixed structures are stored and published, but the travel graph does not yet treat them as obstacles.",
+      "evidence": "internal/domain/structure/fixed_structure.go"
+    },
+    {
+      "text": "Cross-aisle distances are always estimated from the aisles' spacing. The walkway's own geometry is left to a later phase.",
+      "evidence": "internal/domain/travel/graph.go"
+    },
+    {
+      "text": "Aisle lines, cross-aisles and fixed structures are published but nobody consumes them yet.",
+      "evidence": "docs/docs/ddd/domain-events.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "Work-planning contexts could ask for travel distances through a future lookup port. The ADR leaves this as a separate decision.",
+      "evidence": "docs/docs/adr/0017-geometry-and-travel-graph.md"
+    },
+    {
+      "text": "A to-scale floor plan mixing zones with and without geometry is deferred until a consumer needs printed floor plans.",
+      "evidence": "docs/docs/adr/0017-geometry-and-travel-graph.md"
+    }
+  ]
+}
