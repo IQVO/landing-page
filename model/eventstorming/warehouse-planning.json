@@ -207,13 +207,13 @@
     },
     {
       "title": "Keep the expected-orders list",
-      "story": "Each allocated order, fully or partly, counts once at its latest promise cutoff toward the demand of the configured site. Cancellations are not seen, so the figure can overstate demand.",
+      "story": "Each allocated order, fully or partly, counts once at its latest promise cutoff toward the demand of the site its event names, or of the configured site when it names none. Cancellations are not seen, so the figure can overstate demand.",
       "trigger": {
         "kind": "external",
         "system": "order-management",
         "event": "OrderAllocated"
       },
-      "policy": "Whenever an order is allocated, fully or partly, record it at its promise cutoff for the configured site",
+      "policy": "Whenever an order is allocated, fully or partly, record it at its promise cutoff for its own or the configured site",
       "updates": [
         "Expected orders"
       ],
@@ -224,7 +224,8 @@
       "evidence": [
         "internal/application/usecases/expected_demand.go",
         "internal/adapters/inbound/kafka/order_demand_consumer.go",
-        "docs/adr/0004-demand-ingestion-from-order-management.md"
+        "docs/adr/0004-demand-ingestion-from-order-management.md",
+        "docs/adr/0021-order-demand-and-labour-read-the-events-own-site.md"
       ]
     },
     {
@@ -290,12 +291,16 @@
   ],
   "hotspots": [
     {
-      "text": "A shift event carries no window or rate unit. The window is the event time plus planned hours, and the unit is assumed to be units per hour.",
+      "text": "A shift event carries no window start and no rate unit field. The window is the event time plus planned hours, and the rate is taken as units per hour.",
       "evidence": "docs/adr/0003-window-coverage-semantics.md"
     },
     {
-      "text": "Order and task events carry no site, so all demand and completions go to one configured site. Cancellations are not netted, so demand can be overstated.",
-      "evidence": "docs/adr/0004-demand-ingestion-from-order-management.md"
+      "text": "Task completions carry no site, so every completion goes to one configured site.",
+      "evidence": "docs/adr/0017-inbound-labour-demand-and-observed-capacity-feedback.md"
+    },
+    {
+      "text": "Orders whose event names no site still go to one configured site, and cancellations are not netted, so demand can be overstated.",
+      "evidence": "docs/adr/0021-order-demand-and-labour-read-the-events-own-site.md"
     },
     {
       "text": "Stations counted without a declared station standard only raise a warning. No throughput is invented for them.",
@@ -314,10 +319,6 @@
     {
       "text": "Adjusting planned capacity automatically from observed throughput is left to a later decision, which must show it cannot oscillate.",
       "evidence": "docs/adr/0017-inbound-labour-demand-and-observed-capacity-feedback.md"
-    },
-    {
-      "text": "If order events one day carry a usable site, demand can be attributed per site instead of to one configured site.",
-      "evidence": "docs/adr/0004-demand-ingestion-from-order-management.md"
     }
   ]
 }
