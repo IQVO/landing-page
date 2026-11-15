@@ -401,8 +401,8 @@
   ],
   "hotspots": [
     {
-      "text": "A suspended or retired node keeps its open lanes and assigned prefixes. Nothing closes or reassigns them; readers must treat them as unusable.",
-      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+      "text": "By design, a suspended or retired node keeps its open lanes and assigned prefixes. Nothing closes or reassigns them, so every reader must treat them as unusable.",
+      "evidence": "docs/adr/0003-no-consumed-contracts-and-ohs-reads.md"
     },
     {
       "text": "A lane never costed reads zero but publishes nothing, so readers cannot tell 'free' from 'unknown' by the number alone.",
