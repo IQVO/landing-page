@@ -462,12 +462,16 @@
           "name": "CapacityPlanPublished"
         },
         {
+          "ctx": "warehouse-planning",
+          "name": "LabourPlanCommitted"
+        },
+        {
           "ctx": "workforce-management",
           "name": "ShiftPlanCommitted"
         },
         {
-          "ctx": "wes-work-planning",
-          "name": "ChargeForecastReceived"
+          "ctx": "warehouse-planning",
+          "name": "WorkloadForecastReceived"
         },
         {
           "ctx": "wes-work-planning",
@@ -642,10 +646,11 @@
     {
       "id": "after",
       "title": "When things go wrong, and after the sale",
-      "plain": "Exceptions are opened, triaged and resolved. A return is authorized, inspected and given a disposition, and the shopper is refunded.",
+      "plain": "Exceptions are opened, triaged and resolved. A shopper's return is authorized and labelled, the return is inspected and given a disposition, and the shopper is refunded.",
       "contexts": [
         "exception-management",
-        "returns-processing"
+        "returns-processing",
+        "customer-returns"
       ],
       "actors": [
         {
@@ -667,6 +672,10 @@
         {
           "ctx": "returns-processing",
           "name": "ReturnAuthorized"
+        },
+        {
+          "ctx": "customer-returns",
+          "name": "ReturnLabelIssued"
         },
         {
           "ctx": "returns-processing",

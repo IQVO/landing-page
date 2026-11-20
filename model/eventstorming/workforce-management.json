@@ -19,7 +19,8 @@
       "policy": "Whenever no rate is given, use the measured rate; trim the heads when the idle share is high",
       "reads": [
         "Measured task rates",
-        "Idle share per path"
+        "Idle share per path",
+        "Required heads per path and shift"
       ],
       "command": {
         "name": "ProposePathPlan",
@@ -57,11 +58,11 @@
       "then": [
         {
           "system": "warehouse-planning",
-          "does": "turns each plan line into a labour limit for the shift's hours"
+          "does": "turns each plan line into a labour limit and flags a gap from its own labour plan"
         },
         {
           "system": "wes-work-planning",
-          "does": "keeps the latest labour plan per path and checks it against its own plan"
+          "does": "keeps the latest labour plan per path for supervisors to look up"
         }
       ],
       "evidence": [
@@ -220,6 +221,24 @@
       "evidence": [
         "internal/application/usecases/end_associate_shift.go",
         "internal/domain/associate/associate_shift.go"
+      ]
+    },
+    {
+      "title": "Keep the heads the labour plan requires",
+      "story": "warehouse-planning announces the heads each path needs per shift; the newest version is kept. A proposal with no workload uses those heads as they are, and the staffing gap shows them next to the people committed. Committing fewer is still allowed.",
+      "trigger": {
+        "kind": "external",
+        "system": "warehouse-planning",
+        "event": "LabourPlanCommitted"
+      },
+      "policy": "Whenever a labour plan line is committed, keep it if its version is newer than the one held",
+      "updates": [
+        "Required heads per path and shift"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/labour_plan_consumer.go",
+        "internal/application/usecases/record_labour_requirement.go",
+        "docs/docs/adr/0043-propose-heads-from-the-published-labour-plan.md"
       ]
     },
     {

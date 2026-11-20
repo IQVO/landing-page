@@ -1,92 +1,13 @@
 {
   "context": "wes-work-planning",
-  "oneLine": "Turns a shift's forecast volume into a plan, then releases work to the floor continuously, earliest cut-off first. It watches backlog and flags where to rebalance.",
+  "oneLine": "Releases work to the floor continuously, earliest cut-off first, from orders, transfers, slot moves and top-ups. It watches backlog and flags where to rebalance.",
   "pivotal": [
-    "ShiftPlanCommitted",
     "WorkUnitCreated",
     "WorkReleased",
     "WorkUnitCompleted",
     "BacklogThresholdBreached"
   ],
   "rows": [
-    {
-      "title": "Record the volume due by each cut-off",
-      "story": "A planner records how many units are due by each carrier cut-off for a path. For case picks, the cases, cube and weight are worked out from the SKU's pack facts.",
-      "trigger": {
-        "kind": "actor",
-        "name": "Planner"
-      },
-      "reads": [
-        "Pack facts per SKU"
-      ],
-      "command": {
-        "name": "ReceiveChargeForecast",
-        "operationId": "receiveChargeForecast"
-      },
-      "aggregate": "ChargeForecast",
-      "events": [
-        "ChargeForecastReceived"
-      ],
-      "evidence": [
-        "internal/application/usecases/receive_charge_forecast.go",
-        "internal/domain/charge/forecast.go",
-        "internal/domain/shared/events.go"
-      ]
-    },
-    {
-      "title": "Commit the plan for a path",
-      "story": "A planner commits rate, heads and hours for a path. Heads cannot exceed the stations installed. If workforce-management has already committed a different headcount, the difference is flagged in the same step.",
-      "trigger": {
-        "kind": "actor",
-        "name": "Planner"
-      },
-      "reads": [
-        "Labour plan from workforce",
-        "Travel distance between stations",
-        "Pack facts per SKU"
-      ],
-      "command": {
-        "name": "CommitShiftPlan",
-        "operationId": "commitShiftPlan"
-      },
-      "aggregate": "ShiftPlan",
-      "events": [
-        "ShiftPlanCommitted",
-        "PathPlanDriftDetected"
-      ],
-      "evidence": [
-        "internal/application/usecases/commit_shift_plan.go",
-        "internal/application/usecases/drift_reconciliation.go",
-        "internal/domain/plan/shift_plan.go"
-      ]
-    },
-    {
-      "title": "Compare with the labour plan",
-      "story": "workforce-management commits its own headcount per path. This service keeps a read-only copy and, if its own plan for the path has different heads, flags the difference. It only flags; neither plan is corrected.",
-      "trigger": {
-        "kind": "external",
-        "system": "workforce-management",
-        "event": "ShiftPlanCommitted"
-      },
-      "policy": "Whenever the labour plan arrives, keep a copy and flag a difference in heads from our plan",
-      "updates": [
-        "Labour plan from workforce"
-      ],
-      "command": {
-        "name": "ObserveLaborPlan",
-        "via": "policy"
-      },
-      "aggregate": "LaborPlanObserved",
-      "events": [
-        "PathPlanDriftDetected"
-      ],
-      "evidence": [
-        "internal/application/usecases/observe_labor_plan.go",
-        "internal/application/usecases/drift_reconciliation.go",
-        "internal/domain/laborview/drift.go",
-        "docs/docs/adr/0019-labor-plan-committed-shift-plan-reconciliation.md"
-      ]
-    },
     {
       "title": "Turn an allocated order into work",
       "story": "When an order is allocated, fully or in part, each released line becomes one work unit on its process path. A path the catalogue does not know is refused loudly instead of filling a pool nobody serves.",
@@ -182,6 +103,30 @@
         "internal/application/usecases/apply_replenishment_requested.go",
         "internal/application/usecases/apply_replenishment_cancelled.go",
         "docs/docs/adr/0042-pick-face-replenishment-work.md"
+      ]
+    },
+    {
+      "title": "Add work to a path by hand",
+      "story": "A supervisor, or an agent, adds one work unit to a path's pool. A case pick is checked against the SKU's active case pack level and refused if it cannot be checked.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Supervisor"
+      },
+      "reads": [
+        "Pack facts per SKU"
+      ],
+      "command": {
+        "name": "EnqueueWorkUnit",
+        "operationId": "enqueueWorkUnit"
+      },
+      "aggregate": "WorkUnit",
+      "events": [
+        "WorkUnitCreated"
+      ],
+      "evidence": [
+        "internal/application/usecases/enqueue_work_unit.go",
+        "internal/domain/workunit/work_unit.go",
+        "docs/docs/adr/0045-pack-aware-work-units.md"
       ]
     },
     {
@@ -294,6 +239,9 @@
         "internal/application/usecases/rebalance_decision.go",
         "docs/docs/adr/0003-flow-balancing-as-domain-service.md",
         "docs/docs/adr/0020-flowfed-path-observed-throughput-signal.md"
+      ],
+      "reads": [
+        "Labour plan from workforce"
       ]
     },
     {
@@ -312,6 +260,28 @@
         "internal/application/usecases/configure_pool.go",
         "internal/domain/release/work_pool.go",
         "docs/docs/adr/0034-configure-pool-command.md"
+      ]
+    },
+    {
+      "title": "Keep the latest labour plan per path",
+      "story": "workforce-management commits its headcount per path. This service keeps a read-only copy that supervisors can look up and that comes back with a rebalance answer. Since planning moved to warehouse-planning, nothing is compared here.",
+      "trigger": {
+        "kind": "external",
+        "system": "workforce-management",
+        "event": "ShiftPlanCommitted"
+      },
+      "policy": "Whenever the labour plan for a path arrives, replace the local copy with it",
+      "updates": [
+        "Labour plan from workforce"
+      ],
+      "command": {
+        "name": "ObserveLaborPlan",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/observe_labor_plan.go",
+        "internal/domain/laborview/labor_plan_observed.go",
+        "docs/docs/adr/0049-charge-forecast-and-shift-plan-move-to-warehouse-planning.md"
       ]
     },
     {
@@ -402,16 +372,12 @@
       "evidence": "docs/docs/adr/0020-flowfed-path-observed-throughput-signal.md"
     },
     {
-      "text": "PathPlanDriftDetected has no reader yet. Any reaction by another context, such as an alert, is explicitly deferred.",
-      "evidence": "docs/docs/adr/0019-labor-plan-committed-shift-plan-reconciliation.md"
+      "text": "The old forecast and plan routes still answer with a 'moved' error for one release before they go, and their stored tables are kept until a separate approval.",
+      "evidence": "docs/docs/adr/0049-charge-forecast-and-shift-plan-move-to-warehouse-planning.md"
     },
     {
       "text": "Remaining room for flow-fed paths is permanently unknown, and a consumer must match it to a cut-off by nearest time because there is no stronger key.",
       "evidence": "docs/docs/adr/0018-path-capacity-changed.md"
-    },
-    {
-      "text": "Committing a plan can ask facility-layout live for a travel distance. It is optional and fails open. Moving it to events is a tracked follow-up.",
-      "evidence": "docs/docs/adr/0044-postgres-and-kafka-are-the-only-runtime.md"
     }
   ],
   "opportunities": [
@@ -424,8 +390,8 @@
       "evidence": "docs/docs/adr/0040-slot-plan-relocation-work.md"
     },
     {
-      "text": "Drift detection could also compare rate and hours, and track drift across shifts. Today it compares planned heads only.",
-      "evidence": "docs/docs/adr/0019-labor-plan-committed-shift-plan-reconciliation.md"
+      "text": "A work-in-progress limit worked out from planned heads would add a copy of warehouse-planning's labour plan, under its own decision.",
+      "evidence": "docs/docs/adr/0049-charge-forecast-and-shift-plan-move-to-warehouse-planning.md"
     }
   ]
 }

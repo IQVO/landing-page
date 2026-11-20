@@ -1,12 +1,12 @@
 {
   "context": "warehouse-planning",
-  "oneLine": "Answers 'can this site handle the demand in this time window?': it works out how much a process path can do, plans against demand and announces any shortage.",
+  "oneLine": "Answers 'can this site handle the demand in this window?': it keeps the volume forecast, works out path capacity and labour needed, plans and announces any shortage.",
   "pivotal": [
-    "ProcessCapacityRegistered",
+    "WorkloadForecastReceived",
     "CapacityPlanCreated",
     "CapacityPlanPublished",
     "CapacityShortageDetected",
-    "BottleneckDetected"
+    "LabourPlanCommitted"
   ],
   "rows": [
     {
@@ -45,7 +45,7 @@
     },
     {
       "title": "Register a process path",
-      "story": "An operator seeds a process path with its steps, such as pick then pack. This context keeps its own paths and does not follow the process-path catalogue.",
+      "story": "An operator seeds a process path with its steps, such as pick then pack. A flow with the same id from process-path-management wins; a path without one keeps working from this hand-made list.",
       "trigger": {
         "kind": "actor",
         "name": "Operator"
@@ -57,7 +57,8 @@
       "aggregate": "ProcessPath",
       "evidence": [
         "internal/application/usecases/register_process_path.go",
-        "internal/domain/processpath/process_path.go"
+        "internal/domain/processpath/process_path.go",
+        "docs/adr/0025-process-flows-from-process-path-management.md"
       ]
     },
     {
@@ -83,8 +84,29 @@
       ]
     },
     {
+      "title": "Receive the volume forecast for a path",
+      "story": "A planner sends how many units a process path at a site is due to receive by each cut-off. A new forecast replaces the old one whole; sending the same one again changes nothing. No other context reads the announcement yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "command": {
+        "name": "ReceiveWorkloadForecast",
+        "operationId": "receiveWorkloadForecast"
+      },
+      "aggregate": "Forecast",
+      "events": [
+        "WorkloadForecastReceived"
+      ],
+      "evidence": [
+        "internal/application/usecases/workload_forecast.go",
+        "internal/domain/workloadforecast/forecast.go",
+        "docs/adr/0023-workload-forecast-and-labour-plan-move-here.md"
+      ]
+    },
+    {
       "title": "Draft a capacity plan",
-      "story": "A planner asks whether a path can handle the demand at a site in a time window. If no demand figure is typed in, the expected orders are used. Dock bookings are priced in labour minutes beside it and never added to order demand.",
+      "story": "A planner asks whether a path can handle the demand at a site in a window. Demand is typed in, read from expected orders or from the volume forecast. Several drafts of one window are what-if options to compare side by side.",
       "trigger": {
         "kind": "actor",
         "name": "Planner"
@@ -92,6 +114,8 @@
       "reads": [
         "Path capacity",
         "Expected orders",
+        "Volume forecast",
+        "Labour standards",
         "Dock booking demand"
       ],
       "command": {
@@ -111,12 +135,13 @@
       "evidence": [
         "internal/application/usecases/create_capacity_plan.go",
         "internal/domain/capacityplan/capacity_plan.go",
-        "internal/domain/capacityplan/events.go"
+        "internal/domain/capacityplan/events.go",
+        "docs/adr/0024-forecast-demand-and-plan-scenarios.md"
       ]
     },
     {
       "title": "Publish a plan and announce any shortage",
-      "story": "Publishing makes a draft plan official, once only. If the path can do less than the demand, the shortage and the slowest step are announced too.",
+      "story": "Publishing makes a draft plan official, once only, and replaces the plan published before it for the same site, path and window. If the path can do less than the demand, the shortage and the slowest step are announced too.",
       "trigger": {
         "kind": "actor",
         "name": "Planner"
@@ -127,6 +152,7 @@
       },
       "aggregate": "CapacityPlan",
       "events": [
+        "CapacityPlanSuperseded",
         "CapacityPlanPublished",
         "CapacityShortageDetected",
         "BottleneckDetected"
@@ -134,17 +160,52 @@
       "then": [
         {
           "system": "order-management",
-          "does": "marks the window published and flags orders whose promise falls in a shortage; moves no promise"
+          "does": "marks the window published, retires a replaced plan and flags orders in a shortage; moves no promise"
         },
         {
           "system": "network-inventory-planning",
-          "does": "keeps the published plan window in a local copy; plans without a site are skipped"
+          "does": "keeps the newest published plan window per site; plans without a site are skipped"
         }
       ],
       "evidence": [
         "internal/application/usecases/publish_capacity_plan.go",
-        "internal/domain/capacityplan/capacity_plan.go",
-        "internal/domain/capacityplan/events.go"
+        "internal/domain/capacityplan/supersede.go",
+        "internal/domain/capacityplan/events.go",
+        "docs/adr/0024-forecast-demand-and-plan-scenarios.md"
+      ]
+    },
+    {
+      "title": "Commit the labour plan for a shift",
+      "story": "A planner commits rate, heads and hours for a path in a shift. Heads cannot exceed the stations installed; left out, they are worked out from the forecast. If workforce-management committed different heads, the gap is flagged, never corrected.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Planner"
+      },
+      "reads": [
+        "Volume forecast",
+        "Storage positions and stations",
+        "Heads committed by workforce"
+      ],
+      "command": {
+        "name": "CommitLabourPlan",
+        "operationId": "commitLabourPlan"
+      },
+      "aggregate": "Plan",
+      "events": [
+        "LabourPlanCommitted",
+        "LabourPlanDriftDetected"
+      ],
+      "then": [
+        {
+          "system": "workforce-management",
+          "does": "keeps a copy of the required heads per path and shift and proposes heads from it"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/labour_plan.go",
+        "internal/application/usecases/labour_plan_drift.go",
+        "internal/domain/labourplan/plan.go",
+        "docs/adr/0023-workload-forecast-and-labour-plan-move-here.md"
       ]
     },
     {
@@ -169,6 +230,76 @@
         "internal/adapters/inbound/kafka/labor_capacity_consumer.go",
         "internal/application/usecases/register_process_capacity_constraint.go",
         "internal/domain/processcapacity/process_capacity.go"
+      ]
+    },
+    {
+      "title": "Compare committed heads with the labour plan",
+      "story": "A committed shift line that names its shift also records the heads workforce-management put on the path. If they differ from the labour plan, and the gap is new, it is flagged. Neither side is changed and nothing outside reads the flag yet.",
+      "trigger": {
+        "kind": "external",
+        "system": "workforce-management",
+        "event": "ShiftPlanCommitted"
+      },
+      "policy": "Whenever a shift line is committed, store its heads and flag a new gap from the labour plan",
+      "updates": [
+        "Heads committed by workforce"
+      ],
+      "command": {
+        "name": "RecordShiftCommitment",
+        "via": "policy"
+      },
+      "aggregate": "Commitment",
+      "events": [
+        "LabourPlanDriftDetected"
+      ],
+      "evidence": [
+        "internal/application/usecases/labour_plan_drift.go",
+        "internal/adapters/inbound/kafka/labor_capacity_consumer.go",
+        "internal/domain/labourplan/commitment.go"
+      ]
+    },
+    {
+      "title": "Keep the labour standards",
+      "story": "labor-performance announces how many seconds a pick, pack or label task should take, per site or for all sites. This service keeps every version and uses the one in force for a plan's window to state the labour each step needs.",
+      "trigger": {
+        "kind": "external",
+        "system": "labor-performance",
+        "event": "LaborStandardDefined"
+      },
+      "policy": "Whenever a labour standard is defined or revised, add it to the local copy",
+      "updates": [
+        "Labour standards"
+      ],
+      "command": {
+        "name": "RecordLaborStandard",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/labor_standard.go",
+        "internal/adapters/inbound/kafka/labor_standard_consumer.go",
+        "docs/adr/0022-labour-standards-from-labor-performance.md"
+      ]
+    },
+    {
+      "title": "Keep the process flows",
+      "story": "process-path-management announces each flow: the stages a path passes through, in order. A newer version replaces an older one, so repeats and late arrivals are harmless. Path capacity reads these flows first.",
+      "trigger": {
+        "kind": "external",
+        "system": "process-path-management",
+        "event": "ProcessFlowDefined"
+      },
+      "policy": "Whenever a flow is defined, revised or retired, keep the newer version in the local copy",
+      "updates": [
+        "Process flows"
+      ],
+      "command": {
+        "name": "RecordProcessFlow",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/process_flow.go",
+        "internal/adapters/inbound/kafka/process_flow_consumer.go",
+        "docs/adr/0025-process-flows-from-process-path-management.md"
       ]
     },
     {
@@ -207,13 +338,13 @@
     },
     {
       "title": "Keep the expected-orders list",
-      "story": "Each allocated order, fully or partly, counts once at its latest promise cutoff toward the demand of the configured site. Cancellations are not seen, so the figure can overstate demand.",
+      "story": "Each allocated order, fully or partly, counts once at its latest promise cutoff toward the demand of the site its event names, or of the configured site when it names none. Cancellations are not seen, so the figure can overstate demand.",
       "trigger": {
         "kind": "external",
         "system": "order-management",
         "event": "OrderAllocated"
       },
-      "policy": "Whenever an order is allocated, fully or partly, record it at its promise cutoff for the configured site",
+      "policy": "Whenever an order is allocated, fully or partly, record it at its promise cutoff for its own or the configured site",
       "updates": [
         "Expected orders"
       ],
@@ -224,7 +355,8 @@
       "evidence": [
         "internal/application/usecases/expected_demand.go",
         "internal/adapters/inbound/kafka/order_demand_consumer.go",
-        "docs/adr/0004-demand-ingestion-from-order-management.md"
+        "docs/adr/0004-demand-ingestion-from-order-management.md",
+        "docs/adr/0021-order-demand-and-labour-read-the-events-own-site.md"
       ]
     },
     {
@@ -273,7 +405,7 @@
     },
     {
       "title": "Feed the plan reports",
-      "story": "The service reads its own plan announcements and keeps daily facts for the reports: bottleneck frequency, shortage trend and plan throughput. Capacity-limit events are not part of these reports.",
+      "story": "The service reads its own plan announcements and keeps daily facts for the reports: bottleneck frequency, shortage trend and plan throughput. A replaced plan still counts as published there.",
       "trigger": {
         "kind": "event",
         "event": "CapacityPlanPublished"
@@ -284,26 +416,31 @@
       ],
       "evidence": [
         "internal/adapters/inbound/kafka/analytics_consumer.go",
-        "docs/adr/0005-analytics-read-side.md"
+        "docs/adr/0005-analytics-read-side.md",
+        "docs/adr/0024-forecast-demand-and-plan-scenarios.md"
       ]
     }
   ],
   "hotspots": [
     {
-      "text": "A shift event carries no window or rate unit. The window is the event time plus planned hours, and the unit is assumed to be units per hour.",
+      "text": "A shift event carries no window start and no rate unit field. The window is the event time plus planned hours, and the rate is taken as units per hour.",
       "evidence": "docs/adr/0003-window-coverage-semantics.md"
     },
     {
-      "text": "Order and task events carry no site, so all demand and completions go to one configured site. Cancellations are not netted, so demand can be overstated.",
-      "evidence": "docs/adr/0004-demand-ingestion-from-order-management.md"
+      "text": "Task completions carry no site, so every completion goes to one configured site.",
+      "evidence": "docs/adr/0017-inbound-labour-demand-and-observed-capacity-feedback.md"
+    },
+    {
+      "text": "Orders whose event names no site still go to one configured site, and cancellations are not netted, so demand can be overstated.",
+      "evidence": "docs/adr/0021-order-demand-and-labour-read-the-events-own-site.md"
     },
     {
       "text": "Stations counted without a declared station standard only raise a warning. No throughput is invented for them.",
       "evidence": "docs/adr/0002-station-capacity-composition.md"
     },
     {
-      "text": "Process paths are seeded by hand. The process-path catalogue is deliberately not consumed.",
-      "evidence": "docs/adr/0001-warehouse-planning-bounded-context.md"
+      "text": "Paths declared here by hand and flows from process-path-management live side by side until a live check shows every local path has a flow.",
+      "evidence": "docs/adr/0025-process-flows-from-process-path-management.md"
     },
     {
       "text": "ProcessCapacityRegistered and ProcessCapacityChanged are published, but their consumer is marked as not built yet.",
@@ -314,10 +451,6 @@
     {
       "text": "Adjusting planned capacity automatically from observed throughput is left to a later decision, which must show it cannot oscillate.",
       "evidence": "docs/adr/0017-inbound-labour-demand-and-observed-capacity-feedback.md"
-    },
-    {
-      "text": "If order events one day carry a usable site, demand can be attributed per site instead of to one configured site.",
-      "evidence": "docs/adr/0004-demand-ingestion-from-order-management.md"
     }
   ]
 }

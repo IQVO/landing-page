@@ -211,6 +211,27 @@
       ]
     },
     {
+      "title": "Hand the package to an outside carrier",
+      "story": "In a service area served by an outside carrier, the carrier reports that it picked the package up. The journey moves from at the station to with the carrier, and the handoff is announced once. A repeated report is refused as a duplicate.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Outside carrier"
+      },
+      "command": {
+        "name": "ReportCarrierEvent",
+        "operationId": "reportCarrierEvent"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned",
+        "PackageHandedToCarrier"
+      ],
+      "evidence": [
+        "internal/application/usecases/carrier_events.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
       "title": "Show the package out for delivery",
       "story": "The delivery station sends the package out on a route. The journey moves to out for delivery.",
       "trigger": {
@@ -273,6 +294,51 @@
       ],
       "evidence": [
         "internal/adapters/inbound/kafka/handlers_lastmile.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Deposit the package at a pickup point",
+      "story": "A delivery attempt succeeds at a pickup point. The package is not delivered to a doorstep: it is deposited at the point and waits there until the shopper collects it, with a hold deadline.",
+      "trigger": {
+        "kind": "external",
+        "system": "last-mile-delivery",
+        "event": "DeliveryAttempted"
+      },
+      "policy": "Whenever a delivery attempt succeeds at a pickup point, deposit the package there instead of delivering it",
+      "command": {
+        "name": "ApplyScans",
+        "via": "policy"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned",
+        "PackageReadyForCollection"
+      ],
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers_lastmile.go",
+        "internal/application/usecases/scans.go",
+        "internal/domain/journey/journey.go"
+      ]
+    },
+    {
+      "title": "Collect the package at the pickup point",
+      "story": "The shopper collects a waiting package and, when a proof code was taken, it is kept with the scan. Collected is the end of the journey.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RecordScan",
+        "operationId": "recordScan"
+      },
+      "aggregate": "Journey",
+      "events": [
+        "PackageScanned",
+        "PackageCollected"
+      ],
+      "evidence": [
         "internal/application/usecases/scans.go",
         "internal/domain/journey/journey.go"
       ]
@@ -438,6 +504,48 @@
         "internal/application/usecases/sweep.go",
         "internal/domain/journey/types.go",
         "docs/adr/0002-aggregates-and-invariants.md"
+      ]
+    },
+    {
+      "title": "Keep the delivery mode of each postal area",
+      "story": "node-topology assigns a postal prefix to a delivery station. This context keeps only the delivery mode, any carrier options and the version; an older version is ignored.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "ServiceAreaAssigned"
+      },
+      "policy": "Whenever a postal prefix is assigned, keep its delivery mode and carrier options",
+      "updates": [
+        "Postal area copy"
+      ],
+      "command": {
+        "name": "ApplyAreaAssignment",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers_nodetopology.go",
+        "internal/application/usecases/areas.go"
+      ]
+    },
+    {
+      "title": "Keep the pickup points and node states",
+      "story": "A newly registered node that is a pickup point is noted with the station that serves it. Activated, suspended and retired events keep the node's state in the same copy.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeRegistered"
+      },
+      "policy": "Whenever a node is registered, note it if it is a pickup point",
+      "updates": [
+        "Pickup point copy"
+      ],
+      "command": {
+        "name": "NotePickupPoint",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/handlers_nodetopology.go",
+        "internal/application/usecases/points.go"
       ]
     },
     {

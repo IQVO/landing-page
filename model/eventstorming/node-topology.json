@@ -74,6 +74,10 @@
         {
           "system": "linehaul-transportation",
           "does": "keeps the node and re-plans pickups on lanes that end at it"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "notes the node when it is a pickup point"
         }
       ],
       "evidence": [
@@ -148,6 +152,10 @@
         {
           "system": "delivery-promise",
           "does": "marks the node active for promising"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the node's state"
         }
       ],
       "evidence": [
@@ -182,6 +190,10 @@
         {
           "system": "delivery-promise",
           "does": "marks the node suspended"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the node's state"
         }
       ],
       "evidence": [
@@ -217,6 +229,10 @@
         {
           "system": "seller-inbound",
           "does": "marks the node retired in its copy"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the node's state"
         }
       ],
       "evidence": [
@@ -290,6 +306,27 @@
       ]
     },
     {
+      "title": "Declare the carbon a lane emits",
+      "story": "A planner states the carbon, in grams of CO2-equivalent, of moving one package-unit across an open lane on one departure. A newer declaration replaces the previous one. Nothing reads it yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Network-ops planner"
+      },
+      "command": {
+        "name": "DeclareLaneEmission",
+        "operationId": "declareLaneEmission"
+      },
+      "aggregate": "Lane",
+      "events": [
+        "LaneEmissionDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/lanes.go",
+        "internal/domain/lane/lane.go",
+        "docs/adr/0018-lane-emission-declaration.md"
+      ]
+    },
+    {
       "title": "Close a lane",
       "story": "A planner closes an open lane. A closed lane is never reopened; a new lane gets a new identity.",
       "trigger": {
@@ -350,6 +387,10 @@
         {
           "system": "order-sourcing",
           "does": "keeps the prefix-to-station assignment"
+        },
+        {
+          "system": "shipping-and-tracking",
+          "does": "keeps the postal area's delivery mode and carrier options"
         }
       ],
       "evidence": [
@@ -360,8 +401,8 @@
   ],
   "hotspots": [
     {
-      "text": "A suspended or retired node keeps its open lanes and assigned prefixes. Nothing closes or reassigns them; readers must treat them as unusable.",
-      "evidence": "docs/docs/ddd/bounded-context-canvas.md"
+      "text": "By design, a suspended or retired node keeps its open lanes and assigned prefixes. Nothing closes or reassigns them, so every reader must treat them as unusable.",
+      "evidence": "docs/adr/0003-no-consumed-contracts-and-ohs-reads.md"
     },
     {
       "text": "A lane never costed reads zero but publishes nothing, so readers cannot tell 'free' from 'unknown' by the number alone.",

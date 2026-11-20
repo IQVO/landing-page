@@ -30,7 +30,12 @@ const show = (repo, ref, p) => git(repo, 'show', `${ref}:${p}`);
 const lsTree = (repo, ref, p) => (git(repo, 'ls-tree', '--name-only', `${ref}:${p}`) || '').split('\n').filter(Boolean);
 
 // ---- 1. the contexts (single source of truth: the EventCatalog registry) ----
-const catalog = await import(url.pathToFileURL(path.join(ROOT, 'ecosystem', 'catalog.contexts.mjs')).href);
+// Read from the ecosystem repo's origin/develop, never its working tree: that checkout is often on an old
+// feature branch (it once lacked three contexts that origin/develop has). The registry has no imports, so a
+// data: URL loads it without writing a temp file.
+const registrySrc = ['origin/develop', 'origin/main'].map((r) => show('ecosystem', r, 'catalog.contexts.mjs')).find(Boolean);
+if (!registrySrc) throw new Error('ecosystem has no origin/develop:catalog.contexts.mjs (git fetch it)');
+const catalog = await import('data:text/javascript;base64,' + Buffer.from(registrySrc).toString('base64'));
 const CONTEXTS = catalog.CONTEXTS;
 const firstSentence = (s) => s.split(/(?<=\.)\s/)[0];
 
@@ -127,8 +132,10 @@ for (let it = 0; it < 900; it++) {
 contexts.forEach((c, i) => { c.x = Math.round(pos[i].x); c.y = Math.round(pos[i].y); });
 
 // ---- 4. the git record across every checked-out repository ----
-const repos = fs.readdirSync(ROOT).filter((d) => fs.existsSync(path.join(ROOT, d, '.git'))
-  && !/^(wt-|bm-|not_working)/.test(d) && d !== '.worktrees');
+// A real clone has a .git DIRECTORY; a linked worktree (other sessions leave many, e.g. *-bdd3, *-itcov) has a .git
+// FILE and shares the clone's history, so it is not another repository.
+const isClone = (d) => { try { return fs.statSync(path.join(ROOT, d, '.git')).isDirectory(); } catch { return false; } };
+const repos = fs.readdirSync(ROOT).filter((d) => isClone(d) && !/^(wt-|bm-|not_working)/.test(d) && d !== '.worktrees');
 const hashes = new Set();
 const trailers = {};
 let first = null, last = null;

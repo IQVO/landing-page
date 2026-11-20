@@ -387,7 +387,7 @@ ${pending.length ? `<section class="section ${briefed.length ? '' : 'section--wh
   <div class="wrap">
     <header class="sec-head">
       <p class="kicker">Not yet briefed</p>
-      <h2 id="w-${key}">${n(pending.length)} contexts, <em>counted anyway.</em></h2>
+      <h2 id="w-${key}">${n(pending.length)} context${pending.length === 1 ? '' : 's'}, <em>counted anyway.</em></h2>
       <p class="sec-lede">No executive deck is committed for these yet — published as a gap, not papered over. Their numbers are the same counted set.</p>
     </header>
     <ul class="pending">${pendRows}</ul>
