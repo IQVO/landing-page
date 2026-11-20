@@ -132,6 +132,27 @@
       ]
     },
     {
+      "title": "Set how much difference a supplier may ship",
+      "story": "An operator sets, per owner and supplier, how far a delivery may be over or under the ASN. Inside the band it is accepted, above it the clerk needs a reason, past the hard stop it is refused. Nothing outside reads it yet.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "DeclareReceivingPolicy",
+        "operationId": "declareReceivingPolicy"
+      },
+      "aggregate": "ReceivingPolicy",
+      "events": [
+        "ReceivingPolicyDeclared"
+      ],
+      "evidence": [
+        "internal/application/usecases/policy.go",
+        "internal/domain/policy/receiving_policy.go",
+        "docs/adr/0026-receiving-tolerance-policy-bands-override-and-hard-stop.md"
+      ]
+    },
+    {
       "title": "Open a receipt at the door",
       "story": "The truck is at the door. Dock staff open a receipt for the ASN, with or without an appointment, and the ASN moves to Receiving.",
       "trigger": {
@@ -198,7 +219,8 @@
       },
       "reads": [
         "Known SKUs",
-        "Packaging view"
+        "Packaging view",
+        "Supplier tolerance bands"
       ],
       "command": {
         "name": "ReceiveScan",
@@ -226,12 +248,13 @@
       "evidence": [
         "internal/application/usecases/scan.go",
         "internal/application/usecases/scan_receive.go",
-        "internal/domain/receipt/carton_accept.go"
+        "internal/domain/receipt/carton_accept.go",
+        "docs/adr/0026-receiving-tolerance-policy-bands-override-and-hard-stop.md"
       ]
     },
     {
       "title": "Close the receipt",
-      "story": "Dock staff close the receipt. It reports every difference against the ASN, flags cartons that never showed up and sends the receiving advice.",
+      "story": "Dock staff close the receipt. Differences inside the supplier's band are accepted; the rest are reported against the ASN, missing cartons are flagged and the receiving advice is sent.",
       "trigger": {
         "kind": "actor",
         "name": "Dock staff"
@@ -259,7 +282,11 @@
       "evidence": [
         "internal/application/usecases/receipt.go",
         "internal/application/usecases/advice.go",
-        "internal/domain/receipt/advice.go"
+        "internal/domain/receipt/advice.go",
+        "docs/adr/0026-receiving-tolerance-policy-bands-override-and-hard-stop.md"
+      ],
+      "reads": [
+        "Supplier tolerance bands"
       ]
     },
     {
@@ -354,8 +381,8 @@
   ],
   "hotspots": [
     {
-      "text": "No tolerance policy: every over-receipt is reported, never silently accepted. A tolerance is a later decision.",
-      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+      "text": "Tolerance bands are per supplier only. A product-class band waits until product-master publishes a class this service can copy.",
+      "evidence": "docs/adr/0026-receiving-tolerance-policy-bands-override-and-hard-stop.md"
     },
     {
       "text": "Damaged units are counted but have no quarantine flow. They are not booked as stock.",

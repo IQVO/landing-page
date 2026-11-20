@@ -1,0 +1,304 @@
+{
+  "context": "customer-returns",
+  "oneLine": "Lets a shopper return a shipped order group: decides where it goes (or that they keep it), gets the reverse label and closes the return when the centre grades it.",
+  "pivotal": [
+    "ReturnAuthorized",
+    "ReturnLabelIssued",
+    "ReturnCompleted",
+    "ReturnCancelled"
+  ],
+  "rows": [
+    {
+      "title": "Authorize a return for a shipped group",
+      "story": "A shopper asks to return lines of a shipped or delivered order group. The context decides the outcome itself: keep it (cheap lines), send it to the region's returns centre, or back to the node that shipped it.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "reads": [
+        "Order groups and their status",
+        "Returns centres per region",
+        "Which node fulfilled each group"
+      ],
+      "command": {
+        "name": "AuthorizeReturn",
+        "operationId": "authorizeReturn"
+      },
+      "aggregate": "ReturnAuthorization",
+      "events": [
+        "ReturnAuthorized"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "keeps a return advice for the vendor that runs the destination node"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/authorize.go",
+        "internal/domain/returnauthorization/decide.go",
+        "internal/domain/returnauthorization/authorization.go"
+      ]
+    },
+    {
+      "title": "Issue the shopper's reverse label",
+      "story": "For a return that travels, the shopper asks for a label. The context asks the shipping context for it with a direct request, then links the tracking number. A return past its 30 days is cancelled instead.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "IssueLabel",
+        "operationId": "issueReturnLabel"
+      },
+      "aggregate": "ReturnAuthorization",
+      "events": [
+        "ReturnLabelIssued"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "adds the tracking number to the vendor's return advice"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/labels.go",
+        "internal/adapters/outbound/labels/client.go",
+        "internal/domain/returnauthorization/commands.go"
+      ]
+    },
+    {
+      "title": "Cancel a return before it travels",
+      "story": "The shopper withdraws a return while it is still only authorized. An expired return is cancelled the same way when it is next touched by a label request, a cancel or an outcome.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "command": {
+        "name": "CancelReturn",
+        "operationId": "cancelReturn"
+      },
+      "aggregate": "ReturnAuthorization",
+      "events": [
+        "ReturnCancelled"
+      ],
+      "then": [
+        {
+          "system": "vendor-connectivity",
+          "does": "marks the vendor's return advice cancelled, unless an outcome is already recorded"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/queries.go",
+        "internal/domain/returnauthorization/commands.go"
+      ]
+    },
+    {
+      "title": "Close the return from the centre's graded outcome",
+      "story": "The returns centre grades the parcel through its vendor. The first outcome that fits an open return completes it with restockable and unsellable units; lines nobody authorized are only recorded.",
+      "trigger": {
+        "kind": "external",
+        "system": "vendor-connectivity",
+        "event": "VendorReturnOutcomeSubmitted"
+      },
+      "policy": "Whenever a graded outcome fits an open return, complete it with the authorized lines only",
+      "updates": [
+        "Graded outcomes"
+      ],
+      "command": {
+        "name": "OnOutcomeSubmitted",
+        "via": "policy"
+      },
+      "aggregate": "ReturnAuthorization",
+      "events": [
+        "ReturnCompleted"
+      ],
+      "then": [
+        {
+          "system": "offer-availability",
+          "does": "adds the restockable units back to the matching listings"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/outcome.go",
+        "internal/adapters/inbound/kafka/consumers.go",
+        "internal/domain/returnauthorization/commands.go"
+      ]
+    },
+    {
+      "title": "Keep the placed order groups",
+      "story": "customer-ordering announces each placed order. Returns keeps every group with its lines and the order's postal prefix, so a return request only has to name the line numbers.",
+      "trigger": {
+        "kind": "external",
+        "system": "customer-ordering",
+        "event": "CustomerOrderPlaced"
+      },
+      "policy": "Whenever an order is placed, keep each group as promised, never undoing a status already seen",
+      "updates": [
+        "Order groups and their status"
+      ],
+      "command": {
+        "name": "OnOrderPlaced",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go"
+      ]
+    },
+    {
+      "title": "Learn that a group shipped or arrived",
+      "story": "customer-ordering decides the shopper's notices. Shipped and delivered notices make a group returnable; lost and returned ones are recorded too.",
+      "trigger": {
+        "kind": "external",
+        "system": "customer-ordering",
+        "event": "ShopperNoticeDecided"
+      },
+      "policy": "Whenever a final notice is decided, set the group's status from it",
+      "updates": [
+        "Order groups and their status"
+      ],
+      "command": {
+        "name": "OnNoticeDecided",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers.go"
+      ]
+    },
+    {
+      "title": "Keep the network's nodes",
+      "story": "node-topology registers each node with its type and region. Returns keeps them, so it knows which returns centre serves a region.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeRegistered"
+      },
+      "policy": "Whenever a node is registered, keep its type and region without changing its status",
+      "updates": [
+        "Returns centres per region"
+      ],
+      "command": {
+        "name": "OnNodeRegistered",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers_topology.go"
+      ]
+    },
+    {
+      "title": "Track which returns centres are open",
+      "story": "node-topology activates, suspends and retires nodes. Only an active returns centre is ever chosen as a destination; an older status change never overrides a newer one.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "NodeActivated"
+      },
+      "policy": "Whenever a node is activated, suspended or retired, move its status if the change is newer",
+      "updates": [
+        "Returns centres per region"
+      ],
+      "command": {
+        "name": "OnNodeStatus",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers_topology.go"
+      ]
+    },
+    {
+      "title": "Map postal prefixes to regions",
+      "story": "node-topology assigns postal prefixes to regions. Returns keeps the newest assignment, so a group's postal prefix leads to its region's returns centre.",
+      "trigger": {
+        "kind": "external",
+        "system": "node-topology",
+        "event": "ServiceAreaAssigned"
+      },
+      "policy": "Whenever a prefix is assigned, keep it if its version is newer",
+      "updates": [
+        "Postal prefix regions"
+      ],
+      "command": {
+        "name": "OnPrefixFact",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers_topology.go"
+      ]
+    },
+    {
+      "title": "Remember who fulfilled each group",
+      "story": "order-sourcing locks a group to a node and releases it with each item's stock owner (also FulfillmentReleasedToNode). Returns keeps both, for the ship-back destination and the owner on each line.",
+      "trigger": {
+        "kind": "external",
+        "system": "order-sourcing",
+        "event": "FulfillmentLocked"
+      },
+      "policy": "Whenever a group is locked or released to a node, record the node and the item owners",
+      "updates": [
+        "Which node fulfilled each group"
+      ],
+      "command": {
+        "name": "OnOriginFact",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/consumers.go",
+        "internal/adapters/inbound/kafka/consumers_sourcing.go"
+      ]
+    },
+    {
+      "title": "Count returns for the performance report",
+      "story": "Returns reads its own authorized and completed facts into a separate reporting store: returns per day and the reason mix, read by the returns performance report.",
+      "trigger": {
+        "kind": "event",
+        "event": "ReturnAuthorized"
+      },
+      "policy": "Whenever a return is authorized or completed, add it to the daily counts",
+      "updates": [
+        "Returns per day and reason mix"
+      ],
+      "command": {
+        "name": "Apply",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/adapters/inbound/kafka/analytics_consumer.go",
+        "internal/domain/returnsperformance/facts.go",
+        "docs/adr/0012-analytics-read-side-and-return-rate-facts.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A lagging copy of orders or nodes refuses a return (not shipped, no destination); the shopper has to retry with the same key.",
+      "evidence": "docs/adr/0003-consumed-contracts-and-local-read-models.md"
+    },
+    {
+      "text": "The reverse label is off until the shipping service address is configured; until then every label request answers label unavailable.",
+      "evidence": "docs/adr/0005-the-reverse-label-route.md"
+    },
+    {
+      "text": "Doorstep pickup is dormant: nothing raises the pickup-failed state until the last-mile pickup wave arrives.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "Lines the centre received but nobody authorized are only recorded; nothing here restocks or re-decides them.",
+      "evidence": "docs/adr/0002-aggregates-and-invariants.md"
+    },
+    {
+      "text": "The return rate is not reported: this context holds no delivered-order count to divide by, and no refund facts.",
+      "evidence": "docs/adr/0012-analytics-read-side-and-return-rate-facts.md"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "A later event carrying the delivered-group fact could let the return rate be served from here.",
+      "evidence": "docs/adr/0012-analytics-read-side-and-return-rate-facts.md"
+    }
+  ]
+}

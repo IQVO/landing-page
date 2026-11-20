@@ -1,6 +1,6 @@
 {
   "context": "process-path-management",
-  "oneLine": "Keeps the warehouse's catalogue of process paths and each site's carrier cut-off schedule, and tells the rest of the fleet whenever either changes.",
+  "oneLine": "Keeps the warehouse's catalogue of process paths, the order of stages work flows through, and each site's carrier cut-off schedule, and announces every change.",
   "pivotal": [
     "ProcessPathCreated",
     "ProcessPathUpdated",
@@ -95,13 +95,14 @@
     },
     {
       "title": "Retire a process path",
-      "story": "An operator retires a path for good. It is refused while any site's cut-off schedule still lists the path, so the operator revises those schedules first.",
+      "story": "An operator retires a path for good. It is refused while a site's cut-off schedule or an active process flow still uses it, so the operator changes those first.",
       "trigger": {
         "kind": "actor",
         "name": "Operator"
       },
       "reads": [
-        "Sites whose schedule lists the path"
+        "Sites whose schedule lists the path",
+        "Active flows that use the path"
       ],
       "command": {
         "name": "DeactivatePath",
@@ -137,7 +138,8 @@
         "internal/application/usecases/deactivate_path.go",
         "internal/domain/processpath/process_path.go",
         "docs/docs/adr/0026-reject-deactivation-of-paths-in-cpt-schedules.md",
-        "docs/docs/adr/0028-close-path-cpt-schedule-race-with-row-locks.md"
+        "docs/docs/adr/0028-close-path-cpt-schedule-race-with-row-locks.md",
+        "docs/docs/adr/0042-process-flows.md"
       ]
     },
     {
@@ -180,6 +182,64 @@
         "internal/application/usecases/cpt_schedule.go",
         "internal/domain/cptschedule/cpt_schedule.go",
         "internal/domain/cptschedule/events.go"
+      ]
+    },
+    {
+      "title": "Define or revise a process flow",
+      "story": "An operator lays out the order of stages a workload passes through, for example pick, rebin, pack, label. Each stage must be an active path. A request that changes nothing announces nothing.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "reads": [
+        "Active process paths"
+      ],
+      "command": {
+        "name": "DefineProcessFlow",
+        "operationId": "putProcessFlow"
+      },
+      "aggregate": "ProcessFlow",
+      "events": [
+        "ProcessFlowDefined",
+        "ProcessFlowRevised"
+      ],
+      "then": [
+        {
+          "system": "warehouse-planning",
+          "does": "keeps a copy of the flow; a path id with an active flow is planned stage by stage, the slowest binds"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/process_flow.go",
+        "internal/domain/processflow/process_flow.go",
+        "docs/docs/adr/0042-process-flows.md"
+      ]
+    },
+    {
+      "title": "Retire a process flow",
+      "story": "An operator retires a flow. A retired flow cannot be revised again, and its paths may then be retired too.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operator"
+      },
+      "command": {
+        "name": "RetireProcessFlow",
+        "operationId": "retireProcessFlow"
+      },
+      "aggregate": "ProcessFlow",
+      "events": [
+        "ProcessFlowRetired"
+      ],
+      "then": [
+        {
+          "system": "warehouse-planning",
+          "does": "stops using the flow and falls back to its own path of that id, if any"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/process_flow.go",
+        "internal/domain/processflow/process_flow.go",
+        "docs/docs/adr/0042-process-flows.md"
       ]
     },
     {
@@ -248,6 +308,33 @@
         "internal/application/usecases/republish_catalogue.go",
         "cmd/pathmgmt/republish.go",
         "docs/docs/adr/0038-republish-catalogue-on-start.md"
+      ]
+    },
+    {
+      "title": "Replay every active flow at start-up",
+      "story": "At start-up each active flow is announced again as revised, with its current version. A consumer that is caught up ignores it; a fresh one learns the flow. Retired flows are not replayed.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Service start"
+      },
+      "policy": "Whenever the service starts, announce every active flow again",
+      "command": {
+        "name": "RepublishCatalogue",
+        "via": "job"
+      },
+      "aggregate": "ProcessFlow",
+      "events": [
+        "ProcessFlowRevised"
+      ],
+      "then": [
+        {
+          "system": "warehouse-planning",
+          "does": "keeps the flow only if its version is newer than the copy held"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/republish_catalogue.go",
+        "docs/docs/adr/0042-process-flows.md"
       ]
     },
     {

@@ -38,6 +38,29 @@
       ]
     },
     {
+      "title": "Count each delivery question answered",
+      "story": "After a quote or a listing-page estimate is answered, one small fact is noted: region, item count and the shortest promised days. It never slows the reply, is off by default, and a lost fact is only counted.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Shopper"
+      },
+      "policy": "Whenever a quote or estimate is answered, note one fact after the reply is sent",
+      "command": {
+        "name": "RecordQuote / RecordEstimate",
+        "via": "policy"
+      },
+      "aggregate": "Fact",
+      "events": [
+        "DeliveryRequestAnswered"
+      ],
+      "evidence": [
+        "docs/adr/0032-request-level-promise-coverage-from-a-best-effort-fact.md",
+        "internal/application/requestfacts/recorder.go",
+        "internal/domain/requestfact/requestfact.go",
+        "internal/adapters/inbound/http/request_facts.go"
+      ]
+    },
+    {
       "title": "Promise a shipment group",
       "story": "At checkout a quoted offer becomes a provisional promise and holds one order of room on the node's pickup cutoff. The route is re-checked first; a route no longer feasible is refused as full.",
       "trigger": {

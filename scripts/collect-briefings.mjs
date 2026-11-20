@@ -119,6 +119,13 @@ for (const [name, e] of Object.entries(eng.repos)) {
 const decks = {};
 for (const { name, ref } of deckRepos) {
   const html = gitOk(name, 'show', `${ref}:executive/index.html`) || '';
+  // a repo scaffolded from the harness template carries the template's own deck until it gets one: that is
+  // "not yet briefed", never a deck (its {{SERVICE}} placeholders would also leak into the program pages)
+  const deckOf = stripTags((html.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || '').split(' — ')[0].trim();
+  if (deckOf === 'warehouse-harness-template' && name !== deckOf) {
+    process.stdout.write(`  ${name}: skipped, deck is still the harness-template placeholder\n`);
+    continue;
+  }
   const d = parseDeck(html, name);
   d.repo = name; d.defaultBranch = eng.repos[name].defaultBranch;
   decks[name] = d;
@@ -169,7 +176,7 @@ for (const c of facts.contexts) {
 const edges = facts.edges.map((e) => ({ from: e.from, to: e.to }));
 
 const fleet = {
-  decks: deckRepos.length,
+  decks: Object.keys(decks).length,
   contexts: facts.counts.contexts,
   programs: Object.keys(PROGRAMS).length,
   events: facts.counts.eventEdges,
