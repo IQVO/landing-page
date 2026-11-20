@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Collects the executive briefings: parses each repository's committed reveal.js deck
-// (executive/index.html at origin/<default>) — the speaker notes carry the full, un-clamped
+// (executive/index.html at origin/develop, else origin/<default>) — the speaker notes carry the full, un-clamped
 // research text — and joins it with the day's engineering/architecture counts.
 // Writes data/briefings.json. Nothing is typed by hand (ADR 0002, ADR 0005).
 //
@@ -111,7 +111,9 @@ function parseDeck(html, name) {
 
 const deckRepos = [];
 for (const [name, e] of Object.entries(eng.repos)) {
-  const ref = `origin/${e.defaultBranch}`;
+  // read the deck the docs site hosts: develop where it exists (several repos default to main but take deck PRs
+  // into develop, so their main still holds the old or the harness-template deck until the next release)
+  const ref = gitOk(name, 'rev-parse', '-q', '--verify', 'origin/develop') ? 'origin/develop' : `origin/${e.defaultBranch}`;
   const has = (gitOk(name, 'ls-tree', '-r', '--name-only', ref) || '').split('\n').includes('executive/index.html');
   if (has) deckRepos.push({ name, ref });
 }
