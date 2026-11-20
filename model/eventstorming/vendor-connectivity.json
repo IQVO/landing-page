@@ -1,6 +1,6 @@
 {
   "context": "vendor-connectivity",
-  "oneLine": "The network's front door for vendors: issues purchase orders to vendor-run nodes and takes their answers, labels, shipments, stock feeds and inbound receipts.",
+  "oneLine": "The network's front door for vendors: issues purchase orders to vendor-run nodes and takes their answers, labels, shipments, stock feeds, receipts and return outcomes.",
   "pivotal": [
     "PurchaseOrderIssued",
     "PurchaseOrderAccepted",
@@ -344,6 +344,60 @@
       "evidence": [
         "internal/application/usecases/inbound.go",
         "internal/adapters/inbound/kafka/inbound_consumers.go"
+      ]
+    },
+    {
+      "title": "Keep the return advices copy",
+      "story": "Customer-returns announces each authorized return. It becomes an advice for the vendor that runs the receiving node, so the vendor can poll what is coming back. Labels add tracking numbers; a cancel closes it.",
+      "trigger": {
+        "kind": "external",
+        "system": "customer-returns",
+        "event": "ReturnAuthorized"
+      },
+      "policy": "Whenever a return is authorized, labelled or cancelled, update the local return advices copy",
+      "reads": [
+        "Vendor nodes"
+      ],
+      "updates": [
+        "Return advices copy"
+      ],
+      "command": {
+        "name": "OnReturnAuthorized",
+        "via": "policy"
+      },
+      "evidence": [
+        "internal/application/usecases/returns.go",
+        "docs/adr/0014-return-advices-and-outcomes.md"
+      ]
+    },
+    {
+      "title": "Report a return outcome",
+      "story": "The returns centre reports, per item, how many units can be restocked and how many cannot. The advice then leaves the poll. Items the advice never listed are not refused: goods on the dock are never turned away.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Vendor system"
+      },
+      "reads": [
+        "Return advices copy"
+      ],
+      "command": {
+        "name": "SubmitReturnOutcome",
+        "operationId": "submitReturnOutcome"
+      },
+      "aggregate": "Advice",
+      "events": [
+        "VendorReturnOutcomeSubmitted"
+      ],
+      "then": [
+        {
+          "system": "customer-returns",
+          "does": "completes the return so good units are restocked; items it never authorized are recorded, not restocked"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/returns.go",
+        "internal/domain/returns/returns.go",
+        "docs/adr/0014-return-advices-and-outcomes.md"
       ]
     },
     {
