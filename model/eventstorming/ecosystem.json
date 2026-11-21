@@ -503,11 +503,12 @@
     {
       "id": "pick",
       "title": "Pick, pack and ship",
-      "plain": "Tasks appear, associates claim them, units are picked and packed, a load is built and closed, and the shipment leaves the dock.",
+      "plain": "Tasks appear, associates claim them, units are picked and packed, a load is built and closed, and the shipment leaves the dock. An automated rack takes containers in and hands them back at its ports, one move at a time per aisle.",
       "contexts": [
         "fulfillment-execution",
         "task-interleaving",
-        "outbound-shipping"
+        "outbound-shipping",
+        "asrs-control"
       ],
       "actors": [
         {
@@ -545,6 +546,14 @@
         {
           "ctx": "outbound-shipping",
           "name": "LoadClosed"
+        },
+        {
+          "ctx": "asrs-control",
+          "name": "ContainerStored"
+        },
+        {
+          "ctx": "asrs-control",
+          "name": "ContainerPresentedAtPort"
         }
       ],
       "pivotal": {
