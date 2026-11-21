@@ -44,20 +44,25 @@
       ]
     },
     {
-      "title": "Register a process path",
-      "story": "An operator seeds a process path with its steps, such as pick then pack. A flow with the same id from process-path-management wins; a path without one keeps working from this hand-made list.",
+      "title": "Keep the process flows behind the plans",
+      "story": "The hand-made process path list is retired and said goodbye at its old address. The steps a plan follows now arrive only as flows kept current whenever process-path-management changes a path.",
       "trigger": {
-        "kind": "actor",
-        "name": "Operator"
+        "kind": "external",
+        "system": "process-path-management",
+        "event": "ProcessPathUpdated"
       },
+      "policy": "Whenever a process path changes, refresh this warehouse's copy of its steps.",
       "command": {
-        "name": "RegisterProcessPath",
-        "operationId": "registerProcessPath"
+        "name": "ApplyProcessPathChange",
+        "via": "policy"
       },
-      "aggregate": "ProcessPath",
+      "aggregate": "Flow",
+      "updates": [
+        "Process flows"
+      ],
       "evidence": [
-        "internal/application/usecases/register_process_path.go",
-        "internal/domain/processpath/process_path.go",
+        "internal/adapters/inbound/kafka/process_flow_consumer.go",
+        "internal/domain/processflow/flow.go",
         "docs/adr/0025-process-flows-from-process-path-management.md"
       ]
     },
