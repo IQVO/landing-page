@@ -1,0 +1,361 @@
+{
+  "context": "asrs-control",
+  "oneLine": "Controls the automated storage rack: one job per aisle at a time over PLC messages, placing every container and publishing the facts the flow upstairs needs.",
+  "pivotal": [
+    "ContainerStored",
+    "ContainerPresentedAtPort",
+    "StorageJobFailed",
+    "EquipmentStateChanged",
+    "AsrsCapacityChanged"
+  ],
+  "rows": [
+    {
+      "title": "Request a store into the rack",
+      "story": "The warehouse control system asks to store the container waiting on an input port. The aisle's rack map picks and reserves a place at once - front for fast movers, back for slow - and refuses a container that is already in or already busy.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Material flow control"
+      },
+      "reads": [
+        "Free rack positions",
+        "How often the container moves"
+      ],
+      "command": {
+        "name": "RequestStore",
+        "operationId": "createStorageJob"
+      },
+      "aggregate": "Map",
+      "evidence": [
+        "internal/application/usecases/requests.go",
+        "internal/domain/storagemap/assign.go"
+      ]
+    },
+    {
+      "title": "Request a retrieve from the rack",
+      "story": "The warehouse control system names a stored container and an output port. An unknown container, or one already on its way, is refused; otherwise the job waits in its aisle's queue.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Material flow control"
+      },
+      "reads": [
+        "Where each container sits"
+      ],
+      "command": {
+        "name": "RequestRetrieve",
+        "operationId": "createStorageJob"
+      },
+      "aggregate": "Map",
+      "evidence": [
+        "internal/application/usecases/requests.go",
+        "internal/domain/storagemap/map.go"
+      ]
+    },
+    {
+      "title": "Give the aisle its next job",
+      "story": "One job at a time per aisle. When the equipment finishes, the next store or retrieve is sent to it; when a front container blocks the one needed, an invisible shuffle clears the way first.",
+      "trigger": {
+        "kind": "event",
+        "event": "JOB_DONE"
+      },
+      "policy": "Whenever a job ends or a new one is accepted, the aisle's unit takes one next job",
+      "command": {
+        "name": "DispatchNextJob",
+        "via": "policy"
+      },
+      "aggregate": "Unit",
+      "events": [
+        "STORE",
+        "RETRIEVE",
+        "MOVE"
+      ],
+      "then": [
+        {
+          "system": "AS/RS equipment (PLC)",
+          "outside": true,
+          "does": "receives one job at a time and moves the container"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/schedule.go",
+        "internal/domain/scheduling/next.go",
+        "internal/domain/equipment/unit.go"
+      ]
+    },
+    {
+      "title": "The equipment finishes a store",
+      "story": "The equipment answers that the motion is done. The container now sits in its reserved place, the finished-job answer is acknowledged so it never repeats, and the fact is published for the material flow system designed to read it.",
+      "trigger": {
+        "kind": "external",
+        "system": "AS/RS equipment (PLC)",
+        "outside": true,
+        "event": "JOB_DONE"
+      },
+      "policy": "Whenever the equipment reports a finished motion, record it and acknowledge the answer",
+      "command": {
+        "name": "HandleUp",
+        "via": "policy"
+      },
+      "aggregate": "Job",
+      "events": [
+        "JOB_DONE",
+        "ACK",
+        "ContainerStored"
+      ],
+      "evidence": [
+        "internal/application/usecases/uplink.go",
+        "internal/domain/storagejob/transitions.go"
+      ]
+    },
+    {
+      "title": "The container arrives at the port",
+      "story": "A retrieved container reaches its output port in request order. What the port read is recorded - a clean read, a no-read or a mismatch - and the presentation is published so someone can come and take it.",
+      "trigger": {
+        "kind": "external",
+        "system": "AS/RS equipment (PLC)",
+        "outside": true,
+        "event": "PORT_ARRIVAL"
+      },
+      "policy": "Whenever a container arrives at an output port, present the oldest retrieve waiting for it",
+      "command": {
+        "name": "HandleUp",
+        "via": "policy"
+      },
+      "aggregate": "Job",
+      "events": [
+        "PORT_ARRIVAL",
+        "ContainerPresentedAtPort"
+      ],
+      "evidence": [
+        "internal/application/usecases/uplink.go",
+        "internal/domain/storagejob/transitions.go"
+      ]
+    },
+    {
+      "title": "The equipment cannot run a job",
+      "story": "The equipment answers that a job cannot run: the container was not where the rack map said, the port was busy, or a fault. Each bare code becomes a plain failure reason and the job ends.",
+      "trigger": {
+        "kind": "external",
+        "system": "AS/RS equipment (PLC)",
+        "outside": true,
+        "event": "JOB_FAILED"
+      },
+      "policy": "Whenever the equipment fails a job, end it with the mapped reason",
+      "command": {
+        "name": "HandleUp",
+        "via": "policy"
+      },
+      "aggregate": "Job",
+      "events": [
+        "JOB_FAILED",
+        "StorageJobFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/uplink.go",
+        "internal/domain/storagejob/transitions.go"
+      ]
+    },
+    {
+      "title": "An aisle unit stops",
+      "story": "The equipment reports each aisle unit's state. A unit that changed state is published; a held unit fails every job still waiting in its aisle with an equipment fault and takes no new work until it clears.",
+      "trigger": {
+        "kind": "external",
+        "system": "AS/RS equipment (PLC)",
+        "outside": true,
+        "event": "UNIT_STATE"
+      },
+      "policy": "Whenever a unit reports a new state, publish it; a held aisle loses its queued jobs",
+      "command": {
+        "name": "HandleUp",
+        "via": "policy"
+      },
+      "aggregate": "Unit",
+      "events": [
+        "UNIT_STATE",
+        "EquipmentStateChanged",
+        "StorageJobFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/uplink.go",
+        "internal/domain/equipment/unit.go"
+      ]
+    },
+    {
+      "title": "Cancel a job",
+      "story": "The warehouse control system cancels a job. One still waiting is simply dropped; one already with the equipment asks it to stop, and its answer decides the outcome.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Material flow control"
+      },
+      "command": {
+        "name": "Cancel",
+        "operationId": "cancelStorageJob"
+      },
+      "aggregate": "Job",
+      "events": [
+        "CANCEL",
+        "StorageJobFailed"
+      ],
+      "then": [
+        {
+          "system": "AS/RS equipment (PLC)",
+          "outside": true,
+          "does": "is asked to stop the job it holds, and answers"
+        }
+      ],
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/storagejob/transitions.go"
+      ]
+    },
+    {
+      "title": "The equipment answers a stop request",
+      "story": "An accepted stop ends the job as cancelled and frees what it held. A refused or never-answered stop lets the job run on, back to where it was before the request.",
+      "trigger": {
+        "kind": "external",
+        "system": "AS/RS equipment (PLC)",
+        "outside": true,
+        "event": "ACK"
+      },
+      "policy": "Whenever the equipment answers a stop request, end the job or let it go on",
+      "command": {
+        "name": "HandleAck",
+        "via": "policy"
+      },
+      "aggregate": "Job",
+      "events": [
+        "StorageJobFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/acks.go"
+      ]
+    },
+    {
+      "title": "Give up on silent equipment",
+      "story": "A command the equipment never acknowledges is resent three times, then its job fails as unreachable. A stop request that stays unanswered is called off, so the aisle is never left waiting on nothing.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Retransmit timer"
+      },
+      "policy": "After three unanswered retries, a command fails its job; an unanswered stop is called off",
+      "command": {
+        "name": "HandleExpired",
+        "via": "timer"
+      },
+      "aggregate": "Job",
+      "events": [
+        "StorageJobFailed"
+      ],
+      "evidence": [
+        "internal/application/usecases/acks.go",
+        "docs/adr/0002-telegram-conformance-and-aisle-scheduling.md"
+      ]
+    },
+    {
+      "title": "Recover after a restart",
+      "story": "After a restart, every command the equipment never acknowledged is resent unchanged, pending stops too, and every aisle unit is asked to report its state before the aisles carry on.",
+      "trigger": {
+        "kind": "timer",
+        "name": "Boot recovery"
+      },
+      "policy": "At boot, resend everything unanswered and ask every unit its state",
+      "command": {
+        "name": "Recover",
+        "via": "timer"
+      },
+      "aggregate": "Job",
+      "events": [
+        "STATE_REQUEST"
+      ],
+      "evidence": [
+        "internal/application/usecases/recover.go",
+        "docs/adr/0002-telegram-conformance-and-aisle-scheduling.md"
+      ]
+    },
+    {
+      "title": "Confirm the container was taken",
+      "story": "No message from the equipment ever says a container left an output port, so the taker confirms the pickup. The port becomes free and the next retrieve can be presented on it.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Material flow control"
+      },
+      "command": {
+        "name": "ConfirmPickup",
+        "operationId": "confirmPortPickup"
+      },
+      "aggregate": "Map",
+      "evidence": [
+        "internal/application/usecases/commands.go",
+        "internal/domain/storagemap/motion.go"
+      ]
+    },
+    {
+      "title": "Publish what the AS/RS can do",
+      "story": "Every change renews the whole system's numbers - units available, free places, open jobs - and the new capacity is published for the flow control designed to read it.",
+      "trigger": {
+        "kind": "event",
+        "event": "ContainerStored"
+      },
+      "policy": "Whenever an aisle's numbers move, publish the AS/RS's capacity",
+      "command": {
+        "name": "RefreshCapacity",
+        "via": "policy"
+      },
+      "aggregate": "Snapshot",
+      "events": [
+        "AsrsCapacityChanged"
+      ],
+      "evidence": [
+        "internal/application/usecases/aisle.go",
+        "internal/domain/capacity/capacity.go"
+      ]
+    },
+    {
+      "title": "Let an agent look, not touch",
+      "story": "A read-only agent surface answers where a job stands, what waits on each port and how full the system is - without touching the material flow. Nothing can be changed from it.",
+      "trigger": {
+        "kind": "actor",
+        "name": "Operations agent"
+      },
+      "reads": [
+        "AS/RS state",
+        "Storage jobs"
+      ],
+      "command": {
+        "name": "ListJobs",
+        "via": "mcp"
+      },
+      "evidence": [
+        "internal/application/usecases/list_jobs.go",
+        "docs/adr/0005-read-only-mcp-server-and-a2a-agent.md"
+      ]
+    }
+  ],
+  "hotspots": [
+    {
+      "text": "A finished-job answer lost while the service was down leaves the job stuck as acknowledged; protocol v1 has no way to ask the equipment what became of it.",
+      "evidence": "docs/adr/0002-telegram-conformance-and-aisle-scheduling.md"
+    },
+    {
+      "text": "A stop the equipment accepted whose answer (and its retries) are all lost leaves the job waiting forever: the aisle stays busy and the place stays reserved.",
+      "evidence": "docs/adr/0002-telegram-conformance-and-aisle-scheduling.md"
+    },
+    {
+      "text": "When the rack disagrees with the stored map, the job fails as a mismatch but the offending position is not blocked, so the next job can hit it again.",
+      "evidence": "docs/adr/0002-telegram-conformance-and-aisle-scheduling.md"
+    },
+    {
+      "text": "No fleet context consumes the five published facts yet: the material flow system meant to read them, and fault cases for equipment faults, are designed, not built.",
+      "evidence": "docs/adr/0003-cloudevents-envelope-and-type-catalogue.md"
+    },
+    {
+      "text": "A retrieve to a port whose earlier pickup was never confirmed replaces the container still waiting on it; the overlap is only logged.",
+      "evidence": "internal/domain/storagemap/motion.go"
+    }
+  ],
+  "opportunities": [
+    {
+      "text": "The analytics twin of every fact has no reader yet; it is kept as the fleet's analytics data slot.",
+      "evidence": "docs/adr/0003-cloudevents-envelope-and-type-catalogue.md"
+    }
+  ]
+}
