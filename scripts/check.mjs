@@ -20,6 +20,7 @@ const siteHost = siteUrl ? new URL(siteUrl).host : null;
 
 const eng = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'engineering.json'), 'utf8'));
 const arch = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'architecture.json'), 'utf8'));
+const ccode = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'cleancode.json'), 'utf8'));
 const brief = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'briefings.json'), 'utf8'));
 const es = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'eventstorming.json'), 'utf8'));
 const errors = [];
@@ -35,10 +36,11 @@ const walkAll = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
 const DISC = "This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.";
 const engPages = walkAll(path.join(DIST, 'engineering')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 const archPages = walkAll(path.join(DIST, 'architecture')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
+const ccPages = walkAll(path.join(DIST, 'cleancode')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 const briefPages = walkAll(path.join(DIST, 'briefings')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 const esPages = walkAll(path.join(DIST, 'eventstorming')).filter((f) => f.endsWith('.html')).map((f) => path.relative(DIST, f).split(path.sep).join('/'));
 
-for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...briefPages, ...esPages]) {
+for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...ccPages, ...briefPages, ...esPages]) {
   if (!exists(page)) { fail(`${page} missing from dist/`); continue; }
   const html = read(page);
 
@@ -92,6 +94,7 @@ for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...brie
     if (!html.includes('id="not"')) fail('"What IQVO is not" band missing');
     if (!html.includes('href="/engineering/"')) fail('landing page does not link the engineering study');
     if (!html.includes('href="/architecture/"')) fail('landing page does not link the architecture assessment');
+    if (!html.includes('href="/cleancode/"')) fail('landing page does not link the clean-code assessment');
     if (!html.includes('href="/briefings/"')) fail('landing page does not link the executive briefings');
     if (!html.includes('id="eventstorming"') || !html.includes('href="#eventstorming"')) fail('landing page has no EventStorming section or nav link');
     if (!html.includes('href="/eventstorming/#big-picture"')) fail('landing page does not link the EventStorming big picture');
@@ -208,6 +211,60 @@ for (const page of ['index.html', '404.html', ...engPages, ...archPages, ...brie
   if (age > 8) console.warn(`warn: architecture.json is ${age.toFixed(0)} days old (\`make architecture\`)`);
 }
 
+// ---- clean-code assessment: complete, self-consistent, and consistent with the engineering data ----
+{
+  const repos = Object.values(ccode.repos);
+  const want = 1 + Object.keys(ccode.repos).length;
+  if (ccPages.length !== want) fail(`cleancode: ${ccPages.length} pages, expected ${want} (overview + ${Object.keys(ccode.repos).length} projects)`);
+  const order = ccode.method.order;
+  for (const [name, r] of Object.entries(ccode.repos)) {
+    if (!exists(`cleancode/projects/${name}/index.html`)) { fail(`cleancode: assessment for ${name} missing`); continue; }
+    const h1 = read(`cleancode/projects/${name}/index.html`).match(/<h1>([^<]*)<\/h1>/);
+    if (!h1 || h1[1] !== name) fail(`cleancode: ${name} page has the wrong <h1>`);
+    for (const k of order) {
+      const cc = r.cc[k];
+      if (cc == null) { fail(`cleancode: ${name} is missing check ${k}`); continue; }
+      if (!cc.applicable && cc.pass !== null) fail(`cleancode: ${name}.${k} is n/a but has a verdict`);
+      if (cc.applicable && typeof cc.pass !== 'boolean') fail(`cleancode: ${name}.${k} is applicable but has no pass/fail`);
+    }
+    const applicable = order.filter((k) => r.cc[k].applicable).length;
+    const passed = order.filter((k) => r.cc[k].applicable && r.cc[k].pass).length;
+    if (applicable !== r.applicable || passed !== r.passed || r.failed !== applicable - passed) fail(`cleancode: ${name} pass/fail counts do not add up`);
+    if (r.clean !== Math.round((100 * passed) / applicable)) fail(`cleancode: ${name} clean share is wrong`);
+    // cross-pipeline: the project set is the engineering study's
+    if (!eng.repos[name]) fail(`cleancode: ${name} is not in engineering.json`);
+  }
+  // every engineering repo is assessed
+  for (const name of Object.keys(eng.repos)) if (!ccode.repos[name]) fail(`cleancode: engineering repo ${name} has no assessment`);
+  for (const k of order) {
+    const b = ccode.fleet.byCC[k];
+    let applicable = 0, pass = 0;
+    for (const r of repos) { if (!r.cc[k].applicable) continue; applicable++; if (r.cc[k].pass) pass++; }
+    if (applicable !== b.applicable || pass !== b.pass || b.fail !== applicable - pass) fail(`cleancode: fleet roll-up for ${k} does not add up`);
+  }
+  if (ccode.fleet.evaluated !== order.reduce((s, k) => s + ccode.fleet.byCC[k].applicable, 0)) fail('cleancode: fleet evaluated total is wrong');
+  if (ccode.fleet.passed !== order.reduce((s, k) => s + ccode.fleet.byCC[k].pass, 0)) fail('cleancode: fleet passed total is wrong');
+  // fleet totals recomputed from the repos
+  const goRepos = repos.filter((r) => r.go);
+  if (ccode.fleet.goRepos !== goRepos.length) fail('cleancode: fleet Go-repo count is wrong');
+  for (const [k, f] of [['funcs', (r) => r.scan.funcs], ['longFuncs', (r) => r.scan.longFuncs], ['dupCopies', (r) => r.scan.dupCopies], ['exported', (r) => r.scan.exported], ['undocumented', (r) => r.scan.undocumented]]) {
+    if (ccode.fleet[k] !== goRepos.reduce((s, r) => s + (f(r) || 0), 0)) fail(`cleancode: fleet ${k} total is wrong`);
+  }
+  if (ccode.fleet.debtMarkers !== repos.reduce((s, r) => s + (r.cc.debt.applicable ? r.cc.debt.value : 0), 0)) fail('cleancode: fleet debt-marker total is wrong');
+  const ov = read('cleancode/index.html');
+  if (!ov.includes(new Intl.NumberFormat('en-US').format(ccode.fleet.evaluated))) fail('cleancode: evaluated total missing from the overview');
+  if (!ov.includes('id="cc-gofmt"') || !ov.includes('id="cc-hooks"')) fail('cleancode: check anchors missing from the overview');
+  if (!ov.includes(new Intl.NumberFormat('en-US').format(ccode.fleet.debtMarkers))) fail('cleancode: debt-marker total missing from the overview');
+  // the landing band prints the same counts as the data
+  const home = read('index.html');
+  const fmt = (x) => new Intl.NumberFormat('en-US').format(x);
+  for (const [k, v] of [['projects assessed', ccode.fleet.repos], ['functions parsed', ccode.fleet.funcs], ['debt markers', ccode.fleet.debtMarkers], ['duplicate functions', ccode.fleet.dupCopies]]) {
+    if (!home.includes(`<dt>${k}</dt><dd>${fmt(v)}</dd>`)) fail(`cleancode: landing band shows the wrong "${k}" (data says ${fmt(v)})`);
+  }
+  const age = (Date.now() - Date.parse(ccode.generatedAt)) / 86400000;
+  if (age > 8) console.warn(`warn: cleancode.json is ${age.toFixed(0)} days old (\`make cleancode\`)`);
+}
+
 // ---- executive briefings: every program page exists, deck quotes and counts agree ----
 {
   const progs = Object.keys(brief.programs);
@@ -298,7 +355,8 @@ const engDir = path.join(DIST, 'engineering') + path.sep;
 const archDir = path.join(DIST, 'architecture') + path.sep;
 const briefDir = path.join(DIST, 'briefings') + path.sep;
 const esDir = path.join(DIST, 'eventstorming') + path.sep;
-const sum = (re, pick = (f) => !f.startsWith(engDir) && !f.startsWith(archDir) && !f.startsWith(briefDir) && !f.startsWith(esDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
+const ccDir = path.join(DIST, 'cleancode') + path.sep;
+const sum = (re, pick = (f) => !f.startsWith(engDir) && !f.startsWith(archDir) && !f.startsWith(ccDir) && !f.startsWith(briefDir) && !f.startsWith(esDir)) => files.filter((f) => pick(f) && re.test(f)).reduce((s, f) => s + fs.statSync(f).size, 0);
 const budget = [['html', /\.html$/, 90e3], ['css', /\.css$/, 90e3], ['js', /\.js$/, 50e3], ['fonts', /\.woff2$/, 200e3], ['total', /./, 700e3]];
 for (const [name, re, max] of budget) {
   const n = sum(re);
@@ -312,6 +370,10 @@ const archHtml = sum(/\.html$/, (f) => f.startsWith(archDir));
 const archLargest = Math.max(...files.filter((f) => f.startsWith(archDir)).map((f) => fs.statSync(f).size));
 if (archHtml > 2e6) fail(`budget: architecture html is ${(archHtml / 1024).toFixed(0)} KiB, max 1953 KiB`);
 if (archLargest > 120e3) fail(`budget: largest architecture page is ${(archLargest / 1024).toFixed(0)} KiB, max 117 KiB`);
+const ccHtml = sum(/\.html$/, (f) => f.startsWith(ccDir));
+const ccLargest = Math.max(...files.filter((f) => f.startsWith(ccDir)).map((f) => fs.statSync(f).size));
+if (ccHtml > 2e6) fail(`budget: cleancode html is ${(ccHtml / 1024).toFixed(0)} KiB, max 1953 KiB`);
+if (ccLargest > 120e3) fail(`budget: largest cleancode page is ${(ccLargest / 1024).toFixed(0)} KiB, max 117 KiB`);
 const briefHtml = sum(/\.html$/, (f) => f.startsWith(briefDir));
 const briefLargest = Math.max(...files.filter((f) => f.startsWith(briefDir)).map((f) => fs.statSync(f).size));
 if (briefHtml > 1.5e6) fail(`budget: briefings html is ${(briefHtml / 1024).toFixed(0)} KiB, max 1464 KiB`);
@@ -327,4 +389,4 @@ if (errors.length) {
   console.error(`check failed (${errors.length}):\n - ${errors.join('\n - ')}`);
   process.exit(1);
 }
-console.log(`check ok: ${files.length} files (${engPages.length} engineering, ${archPages.length} architecture, ${briefPages.length} briefing pages, ${esPages.length} eventstorming pages), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
+console.log(`check ok: ${files.length} files (${engPages.length} engineering, ${archPages.length} architecture, ${ccPages.length} clean-code, ${briefPages.length} briefing pages, ${esPages.length} eventstorming pages), html ${(sum(/\.html$/) / 1024).toFixed(0)} KiB, css ${(sum(/\.css$/) / 1024).toFixed(0)} KiB, js ${(sum(/\.js$/) / 1024).toFixed(0)} KiB, fonts ${(sum(/\.woff2$/) / 1024).toFixed(0)} KiB`);
