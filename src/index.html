@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IQVO — Can AI agents do real Domain-Driven Design?</title>
-<meta name="description" content="A study project, not a product and not production. IQVO is a Domain-Driven Design study and an open experiment in AI agents, durable memory and harness engineering across different LLMs: {{contexts}} bounded contexts in one warehouse, retail-network and storefront ecosystem.">
+<meta name="description" content="A study project, not a product and not production. IQVO is a Domain-Driven Design study and an open experiment in AI agents, durable memory and harness engineering across different LLMs: {{contexts}} bounded contexts in one warehouse with its warehouse-control tier, retail-network and storefront ecosystem.">
 <meta name="theme-color" content="#0B1D2D">
 <meta name="color-scheme" content="light">
 {{#siteUrl}}<link rel="canonical" href="{{siteUrl}}/">
@@ -530,7 +530,7 @@
       <li class="strength reveal">
         <h3><span class="strength__n mono">A</span>Boundaries you can see</h3>
         <div>
-          <p>{{contexts}} bounded contexts in four domains &mdash; WMS ({{wms}}), WES ({{wes}}), Retail Network ({{retail}}) and Digital Storefront ({{storefront}}) &mdash; each classified Core, Supporting or Generic. Two contexts are barred from calling a sibling at all: they live on events and local copies.</p>
+          <p>{{contexts}} bounded contexts in four domains &mdash; WMS ({{wms}}), WES ({{wes}}), Retail Network ({{retail}}) and Digital Storefront ({{storefront}}) &mdash; each classified Core, Supporting or Generic. Two contexts are barred from calling a sibling at all: they live on events and local copies. Beneath the WES, a warehouse-control tier has begun: <b>asrs-control</b>, the first WCS context, schedules an automated storage rack over MQTT telegrams against a simulated PLC &mdash; two more equipment controllers are designed, not built.</p>
           <p class="proof mono"><a href="{{docs}}/strategic-design/context-map" rel="noopener">context map</a> · process-path-management · labor-performance</p>
         </div>
       </li>
@@ -716,6 +716,7 @@
           <li><a href="{{docs}}/overview" rel="noopener"><b>Overview</b><span>What the fleet is and how to read it</span></a></li>
           <li><a href="{{docs}}/strategic-design" rel="noopener"><b>Strategic design</b><span>Vision, core domain chart, EventStorming, context map</span></a></li>
           <li><a href="{{docs}}/contexts" rel="noopener"><b>Bounded contexts</b><span>Canvas, aggregates, events and runbook per context</span></a></li>
+          <li><a href="{{docs}}/wcs" rel="noopener"><b>Warehouse control tier</b><span>The WCS: asrs-control built, two more designed</span></a></li>
           <li><a href="{{docs}}/network" rel="noopener"><b>Retail network</b><span>The second domain: node, promise and parcel logistics</span></a></li>
           <li><a href="{{docs}}/storefront" rel="noopener"><b>Digital storefront</b><span>Content, pricing, cart, checkout, payments</span></a></li>
           <li><a href="{{docs}}/fleet-health/ecosystem-gaps" rel="noopener"><b>Ecosystem gaps</b><span>What is still wrong, written down</span></a></li>
