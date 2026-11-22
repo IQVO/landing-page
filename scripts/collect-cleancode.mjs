@@ -107,7 +107,7 @@ const MARKER_EXCL = [':!*_test.go', ':!*.spec.ts', ':!*.spec.tsx', ':!*.test.ts'
   ':!tests/', ':!test/', ':!testdata/', ':!vendor/', ':!e2e/', ':!__tests__/', ':!dist/', ':!coverage/', ':!node_modules/'];
 
 // lint-gate tokens read from Makefile / configs / workflows; the first hit per language names the gate
-const LINT_TOKENS = ['golangci-lint', 'gofmt', 'fmt-check', 'go vet', 'eslint', 'prettier', 'biome', 'ruff', 'tflint', 'terraform fmt', 'hadolint', 'actionlint', 'node --check'];
+const LINT_TOKENS = ['golangci-lint', 'gofmt', 'fmt-check', 'go vet', 'eslint', 'prettier', 'biome', 'ruff', 'tflint', 'terraform fmt', 'hadolint', 'actionlint', 'node --check', 'eventcatalog-linter'];
 
 const eng = JSON.parse(fs.readFileSync(ENG, 'utf8'));
 const facts = JSON.parse(fs.readFileSync(FACTS, 'utf8'));
